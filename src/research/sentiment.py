@@ -5,9 +5,10 @@ logger = logging.getLogger(__name__)
 
 
 class SentimentAnalyzer:
-    def __init__(self, use_transformer: bool = True):
+    def __init__(self, use_transformer: bool = True, ambiguity_threshold: float = 0.6):
         self.vader = SentimentIntensityAnalyzer()
         self.use_transformer = use_transformer
+        self.ambiguity_threshold = ambiguity_threshold
         self._roberta = None
 
     def _get_roberta(self):
@@ -25,7 +26,7 @@ class SentimentAnalyzer:
         compound = vader_scores["compound"]
 
         # Fast path: VADER is confident
-        if not self.use_transformer or abs(compound) > 0.6:
+        if not self.use_transformer or abs(compound) > self.ambiguity_threshold:
             label = "positive" if compound > 0.05 else ("negative" if compound < -0.05 else "neutral")
             return {"label": label, "score": abs(compound)}
 

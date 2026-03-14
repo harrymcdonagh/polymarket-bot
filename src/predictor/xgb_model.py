@@ -23,14 +23,15 @@ class PredictionModel:
     def _features_to_array(self, features: dict) -> np.ndarray:
         return np.array([[features.get(f, 0.0) for f in FEATURE_ORDER]])
 
-    def train(self, feature_dicts: list[dict], labels: list[int]):
+    def train(self, feature_dicts: list[dict], labels: list[int],
+              n_estimators: int = 100, max_depth: int = 4, learning_rate: float = 0.1):
         """Train XGBoost on historical data."""
         X = np.array([[fd.get(f, 0.0) for f in FEATURE_ORDER] for fd in feature_dicts])
         y = np.array(labels)
         self.model = xgb.XGBClassifier(
-            n_estimators=100,
-            max_depth=4,
-            learning_rate=0.1,
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            learning_rate=learning_rate,
             objective="binary:logistic",
             eval_metric="logloss",
         )

@@ -79,6 +79,74 @@ def test_model_train_and_predict():
     assert prob >= 0.5
 
 
+def test_trainer_market_to_features_valid():
+    from src.predictor.trainer import market_to_features
+    market = {
+        "outcomePrices": '["1.0", "0.0"]',
+        "volumeNum": 100000,
+        "liquidityNum": 50000,
+    }
+    result = market_to_features(market)
+    assert result is not None
+    assert result["label"] == 1
+    assert "features" in result
+    assert len(result["features"]) == 17
+
+
+def test_trainer_market_to_features_rejects_unresolved():
+    from src.predictor.trainer import market_to_features
+    market = {
+        "outcomePrices": '["0.60", "0.40"]',
+        "volumeNum": 100000,
+        "liquidityNum": 50000,
+    }
+    result = market_to_features(market)
+    assert result is None
+
+
+def test_trainer_market_to_features_rejects_low_volume():
+    from src.predictor.trainer import market_to_features
+    market = {
+        "outcomePrices": '["1.0", "0.0"]',
+        "volumeNum": 500,
+        "liquidityNum": 50000,
+    }
+    result = market_to_features(market)
+    assert result is None
+
+
+def test_trainer_market_to_features_no_outcome():
+    from src.predictor.trainer import market_to_features
+    market = {
+        "outcomePrices": '["0.99"]',
+        "volumeNum": 100000,
+        "liquidityNum": 50000,
+    }
+    result = market_to_features(market)
+    assert result is None
+
+
+def test_model_save_and_load(tmp_path):
+    model = PredictionModel()
+    X = [
+        {"yes_price": 0.3, "sentiment_polarity": -0.4, "log_liquidity": 9, "log_volume_24h": 7,
+         "spread": 0.05, "no_price": 0.7, "days_to_resolution": 10, "volume_liquidity_ratio": 0.1,
+         "flag_wide_spread": 0, "flag_high_volume": 0, "flag_price_spike": 0,
+         "sentiment_positive_ratio": 0.2, "sentiment_negative_ratio": 0.6,
+         "sentiment_neutral_ratio": 0.2, "sentiment_avg_score": 0.3,
+         "sentiment_sample_size": 30, "price_sentiment_gap": 0.1},
+    ] * 10
+    y = [0] * 5 + [1] * 5
+    model.train(X, y)
+    path = str(tmp_path / "test_model.json")
+    model.save(path)
+
+    loaded = PredictionModel()
+    loaded.load(path)
+    prob = loaded.predict(X[0])
+    assert 0.0 <= prob <= 1.0
+
+
 @pytest.mark.asyncio
 async def test_calibrator_combines_xgb_and_llm():
     mock_response = MagicMock()

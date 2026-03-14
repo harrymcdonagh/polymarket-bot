@@ -24,15 +24,45 @@ class Pipeline:
         self.db = Database(db_path)
         self.db.init()
         self.scanner = MarketScanner(self.settings)
-        self.sentiment = SentimentAnalyzer(use_transformer=True)
+        self.sentiment = SentimentAnalyzer(
+            use_transformer=True,
+            ambiguity_threshold=self.settings.SENTIMENT_AMBIGUITY_THRESHOLD,
+        )
         self.xgb_model = PredictionModel()
+        self._load_model()
         self.calibrator = Calibrator(settings=self.settings)
         self.risk_manager = RiskManager(self.settings)
         self.postmortem = PostmortemAnalyzer(settings=self.settings, db=self.db)
+        self.executor = self._init_executor()
 
         self._twitter = None
         self._reddit = None
-        self._rss = RSSResearcher()
+        self._rss = RSSResearcher(entry_limit=self.settings.RSS_ENTRY_LIMIT)
+        self._settlement_tasks: list[asyncio.Task] = []
+
+    def _init_executor(self) -> TradeExecutor | None:
+        if not self.settings.POLYMARKET_PRIVATE_KEY:
+            logger.info("No POLYMARKET_PRIVATE_KEY — executor disabled")
+            return None
+        try:
+            from py_clob_client.client import ClobClient
+            clob = ClobClient(
+                self.settings.POLYMARKET_CLOB_URL,
+                key=self.settings.POLYMARKET_PRIVATE_KEY,
+                chain_id=137,  # Polygon mainnet
+            )
+            return TradeExecutor(clob, self.db)
+        except Exception as e:
+            logger.warning(f"Failed to init CLOB client: {e}")
+            return None
+
+    def _load_model(self, path: str = "model_xgb.json"):
+        import os
+        if os.path.exists(path):
+            self.xgb_model.load(path)
+            logger.info(f"Loaded trained XGBoost model from {path}")
+        else:
+            logger.warning("No trained model found — predictions will use market price as baseline")
 
     async def scan(self) -> list[ScannedMarket]:
         logger.info("=== STEP 1: Scanning markets ===")
@@ -134,6 +164,24 @@ class Pipeline:
             logger.info(f"BLOCKED: {decision.rejection_reason}")
         return decision
 
+    async def check_open_trades(self):
+        """Check settlement status of any open trades."""
+        open_trades = self.db.get_open_trades()
+        if not open_trades:
+            return
+        logger.info(f"Checking {len(open_trades)} open trades for settlement")
+        for trade in open_trades:
+            # Check if already being watched
+            if any(not t.done() for t in self._settlement_tasks):
+                continue
+            if self.executor:
+                task = asyncio.create_task(
+                    self.executor.watch_settlement(trade["id"], trade.get("market_id", ""))
+                )
+                self._settlement_tasks.append(task)
+        # Clean up completed tasks
+        self._settlement_tasks = [t for t in self._settlement_tasks if not t.done()]
+
     async def run_postmortem(self):
         logger.info("=== STEP 5: Running postmortem ===")
         reports = await self.postmortem.run_full_postmortem()
@@ -144,10 +192,16 @@ class Pipeline:
     async def run_cycle(self, dry_run: bool = True):
         logger.info("========== STARTING PIPELINE CYCLE ==========")
 
+        await self.check_open_trades()
+
         markets = await self.scan()
         if not markets:
             logger.info("No markets found, ending cycle")
             return
+
+        # Save snapshots for historical data collection
+        saved = self.db.save_market_snapshots_batch(markets)
+        logger.info(f"Saved {saved} market snapshots to database")
 
         flagged = [m for m in markets if m.flags]
         targets = flagged[:10] if flagged else markets[:5]
@@ -159,7 +213,20 @@ class Pipeline:
                 decision = self.evaluate_risk(prediction)
 
                 if decision.approved and not dry_run:
-                    logger.info(f"Would execute: {decision.bet_size_usd} on {prediction.recommended_side}")
+                    if self.executor is None:
+                        logger.error("Trade approved but executor not initialized — missing private key")
+                        continue
+                    token_id = market.token_yes_id if prediction.recommended_side == "YES" else market.token_no_id
+                    execution = self.executor.execute(decision, token_id)
+                    logger.info(f"Executed: {execution.status} | order={execution.order_id}")
+                    if execution.status == "pending":
+                        # Get the trade ID from the most recent trade
+                        trades = self.db.get_open_trades()
+                        if trades:
+                            trade_id = trades[-1]["id"]
+                            self._settlement_tasks.append(
+                                asyncio.create_task(self.executor.watch_settlement(trade_id, token_id))
+                            )
 
                 elif decision.approved and dry_run:
                     logger.info(f"[DRY RUN] Would bet ${decision.bet_size_usd:.2f} on {prediction.recommended_side}")
@@ -170,7 +237,26 @@ class Pipeline:
 
         await self.run_postmortem()
 
+        self._log_cycle_stats(len(markets), len(targets))
+
         logger.info("========== CYCLE COMPLETE ==========")
+
+    def _log_cycle_stats(self, total_scanned: int, targets_evaluated: int):
+        """Log end-of-cycle performance metrics."""
+        stats = self.db.get_trade_stats()
+        daily_pnl = self.db.get_daily_pnl()
+        snapshots = self.db.get_snapshot_count()
+        open_trades = len(self.db.get_open_trades())
+
+        logger.info(
+            f"--- Cycle Stats ---\n"
+            f"  Markets scanned: {total_scanned} | Evaluated: {targets_evaluated}\n"
+            f"  Open trades: {open_trades}\n"
+            f"  Settled: {stats['total_trades']} | Wins: {stats['wins']} | "
+            f"Win rate: {stats['win_rate']:.0%}\n"
+            f"  Total PnL: ${stats['total_pnl']:.2f} | Today: ${daily_pnl:.2f}\n"
+            f"  Snapshots in DB: {snapshots}"
+        )
 
     async def _search_twitter(self, query: str) -> list[dict]:
         if self._twitter is None:
@@ -207,10 +293,21 @@ class Pipeline:
             return "Narrative generation unavailable."
 
     def _calc_alignment(self, sentiments: list[SentimentResult], yes_price: float) -> float:
+        """Calculate how well sentiment aligns with market price.
+
+        Returns -1 (strong contradiction) to +1 (strong agreement).
+        Uses sentiment polarity (positive - negative) compared to price deviation from 0.5.
+        """
         if not sentiments:
             return 0.0
         avg_pos = sum(s.positive_ratio for s in sentiments) / len(sentiments)
-        return 2 * (1 - abs(avg_pos - yes_price)) - 1
+        avg_neg = sum(s.negative_ratio for s in sentiments) / len(sentiments)
+        # Sentiment direction: positive means YES-leaning, negative means NO-leaning
+        sentiment_direction = avg_pos - avg_neg  # -1 to +1
+        # Price direction: >0.5 means market leans YES, <0.5 means NO
+        price_direction = (yes_price - 0.5) * 2  # -1 to +1
+        # Agreement: both point same direction = positive alignment
+        return sentiment_direction * price_direction
 
 
 async def main():

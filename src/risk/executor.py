@@ -73,34 +73,64 @@ class TradeExecutor:
                 executed_at=now,
             )
 
-    async def watch_settlement(self, trade_id: int, token_id: str):
-        """Poll for market resolution and update trade status."""
+    async def watch_settlement(self, trade_id: int, token_id: str, max_checks: int = 2016):
+        """Poll for market resolution and update trade status.
+
+        Args:
+            max_checks: Max poll attempts (default 2016 = ~7 days at 5min intervals).
+        """
         import asyncio
         import httpx
 
-        while True:
-            try:
-                async with httpx.AsyncClient() as client:
-                    resp = await client.get(
-                        f"https://clob.polymarket.com/price",
-                        params={"token_id": token_id, "side": "BUY"},
-                    )
-                    data = resp.json()
-                    price = float(data.get("price", 0.5))
+        base_interval = 300  # 5 minutes
+        backoff_multiplier = 1
+        checks = 0
 
-                    # If price hits 0 or 1, market has resolved
-                    if price >= 0.99 or price <= 0.01:
+        while checks < max_checks:
+            checks += 1
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.get(
+                        "https://gamma-api.polymarket.com/markets",
+                        params={"clob_token_ids": token_id, "limit": 1},
+                    )
+                    resp.raise_for_status()
+                    markets = resp.json()
+
+                    if not markets:
+                        logger.debug(f"Settlement watch {trade_id}: market not found")
+                        await asyncio.sleep(base_interval * backoff_multiplier)
+                        continue
+
+                    market = markets[0]
+                    closed = market.get("closed", False)
+                    if closed in (True, "true"):
                         trades = self.db.get_open_trades()
                         trade = next((t for t in trades if t["id"] == trade_id), None)
                         if trade:
-                            won = (price >= 0.99 and trade["side"] == "YES") or \
-                                  (price <= 0.01 and trade["side"] == "NO")
-                            pnl = trade["amount"] * (1 / trade["price"] - 1) if won else -trade["amount"]
+                            # Check resolved outcome prices
+                            import json
+                            prices = json.loads(market.get("outcomePrices", "[]"))
+                            if len(prices) >= 2:
+                                resolved_yes = float(prices[0])
+                            else:
+                                resolved_yes = 0.5
+
+                            won = (resolved_yes >= 0.99 and trade["side"] == "YES") or \
+                                  (resolved_yes <= 0.01 and trade["side"] == "NO")
+                            # PnL: winning = amount * (1/price - 1), losing = -amount
+                            pnl = trade["amount"] * (1.0 / trade["price"] - 1.0) if won else -trade["amount"]
                             self.db.update_trade_status(trade_id, "settled", pnl)
-                            logger.info(f"Trade {trade_id} settled: PnL=${pnl:.2f}")
+                            logger.info(f"Trade {trade_id} settled: {'WON' if won else 'LOST'} PnL=${pnl:.2f}")
                         return
 
-            except Exception as e:
-                logger.warning(f"Settlement watch error: {e}")
+                # Reset backoff on successful check
+                backoff_multiplier = 1
 
-            await asyncio.sleep(300)  # check every 5 minutes
+            except Exception as e:
+                logger.warning(f"Settlement watch error for trade {trade_id}: {e}")
+                backoff_multiplier = min(backoff_multiplier * 2, 12)  # max 1 hour
+
+            await asyncio.sleep(base_interval * backoff_multiplier)
+
+        logger.warning(f"Settlement watch for trade {trade_id} timed out after {max_checks} checks")

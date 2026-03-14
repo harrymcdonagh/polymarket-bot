@@ -46,6 +46,8 @@ class MarketScanner:
             if end_date_str:
                 try:
                     end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+                    if end_date.tzinfo is None:
+                        end_date = end_date.replace(tzinfo=timezone.utc)
                     days_to_res = (end_date - datetime.now(timezone.utc)).days
                 except (ValueError, TypeError):
                     pass
@@ -102,7 +104,7 @@ class MarketScanner:
         return all_markets[:max_markets]
 
     def _passes_filters(self, market: dict) -> bool:
-        """Check if market meets minimum liquidity, volume, and time criteria."""
+        """Check if market meets minimum liquidity, volume, time, and price criteria."""
         liquidity = float(market.get("liquidityNum", 0) or market.get("liquidity", 0))
         volume = float(market.get("volume24hr", 0))
 
@@ -111,11 +113,23 @@ class MarketScanner:
         if volume < self.settings.MIN_VOLUME_24H:
             return False
 
+        # Filter out near-resolved markets (no edge to find)
+        try:
+            prices = json.loads(market.get("outcomePrices", "[]"))
+            if len(prices) >= 2:
+                yes_price = float(prices[0])
+                if yes_price < 0.05 or yes_price > 0.95:
+                    return False
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+
         # Check time to resolution
         end_date_str = market.get("endDateIso") or market.get("end_date_iso")
         if end_date_str:
             try:
                 end = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+                if end.tzinfo is None:
+                    end = end.replace(tzinfo=timezone.utc)
                 days = (end - datetime.now(timezone.utc)).days
                 if days > self.settings.MAX_DAYS_TO_RESOLUTION:
                     return False
@@ -136,5 +150,25 @@ class MarketScanner:
         volume = float(market.get("volume24hr", 0))
         if volume > 50000:
             flags.append(ScanFlag.HIGH_VOLUME)
+
+        # Price spike: large price move relative to threshold
+        try:
+            price_change = abs(float(market.get("bestAsk", 0)) - float(market.get("bestBid", 0)))
+            if price_change >= self.settings.PRICE_MOVE_ALERT_THRESHOLD:
+                flags.append(ScanFlag.PRICE_SPIKE)
+        except (TypeError, ValueError):
+            pass
+
+        # Mispriced: spread implies prices don't sum to ~1.0
+        try:
+            prices = json.loads(market.get("outcomePrices", "[]"))
+            if len(prices) >= 2:
+                yes_p = float(prices[0])
+                no_p = float(prices[1])
+                # If prices significantly don't sum to 1, potential mispricing
+                if abs(yes_p + no_p - 1.0) > 0.05:
+                    flags.append(ScanFlag.MISPRICED)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
 
         return flags
