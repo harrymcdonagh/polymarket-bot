@@ -1,15 +1,23 @@
 import sqlite3
+import threading
 from datetime import datetime, timezone
 
 
 class Database:
     def __init__(self, path: str = "bot.db"):
         self.path = path
+        self._local = threading.local()
 
     def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        if not hasattr(self._local, 'connection') or self._local.connection is None:
+            self._local.connection = sqlite3.connect(self.path)
+            self._local.connection.row_factory = sqlite3.Row
+        return self._local.connection
+
+    def close(self):
+        if hasattr(self._local, 'connection') and self._local.connection:
+            self._local.connection.close()
+            self._local.connection = None
 
     def init(self):
         conn = self._conn()
@@ -25,6 +33,19 @@ class Database:
                 volume_24h REAL,
                 flags TEXT,
                 scanned_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS market_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                condition_id TEXT NOT NULL,
+                question TEXT,
+                yes_price REAL,
+                no_price REAL,
+                spread REAL,
+                liquidity REAL,
+                volume_24h REAL,
+                days_to_resolution INTEGER,
+                flags TEXT,
+                snapshot_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,7 +81,6 @@ class Database:
             );
         """)
         conn.commit()
-        conn.close()
 
     def save_trade(self, market_id: str, side: str, amount: float, price: float, order_id: str | None = None):
         conn = self._conn()
@@ -69,12 +89,10 @@ class Database:
             (market_id, side, amount, price, order_id),
         )
         conn.commit()
-        conn.close()
 
     def get_open_trades(self) -> list[dict]:
         conn = self._conn()
         rows = conn.execute("SELECT * FROM trades WHERE status = 'pending'").fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
     def update_trade_status(self, trade_id: int, status: str, pnl: float | None = None):
@@ -88,7 +106,6 @@ class Database:
         else:
             conn.execute("UPDATE trades SET status = ? WHERE id = ?", (status, trade_id))
         conn.commit()
-        conn.close()
 
     def get_losing_trades(self, limit: int = 10) -> list[dict]:
         conn = self._conn()
@@ -96,7 +113,6 @@ class Database:
             "SELECT * FROM trades WHERE status = 'settled' AND pnl < 0 ORDER BY settled_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
     def save_lesson(self, category: str, lesson: str, source_trade_id: int | None = None):
@@ -106,7 +122,6 @@ class Database:
             (category, lesson, source_trade_id),
         )
         conn.commit()
-        conn.close()
 
     def get_lessons(self, category: str | None = None) -> list[dict]:
         conn = self._conn()
@@ -114,7 +129,68 @@ class Database:
             rows = conn.execute("SELECT * FROM lessons WHERE category = ?", (category,)).fetchall()
         else:
             rows = conn.execute("SELECT * FROM lessons").fetchall()
-        conn.close()
+        return [dict(r) for r in rows]
+
+    def save_market_snapshots_batch(self, markets) -> None:
+        """Persist a batch of ScannedMarket objects to market_snapshots."""
+        conn = self._conn()
+        now = datetime.now(timezone.utc).isoformat()
+        conn.executemany(
+            """INSERT INTO market_snapshots
+               (condition_id, question, yes_price, no_price, spread, liquidity,
+                volume_24h, days_to_resolution, flags, snapshot_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    m.condition_id,
+                    m.question,
+                    m.yes_price,
+                    m.no_price,
+                    m.spread,
+                    m.liquidity,
+                    m.volume_24h,
+                    m.days_to_resolution,
+                    ",".join(str(f) for f in m.flags) if m.flags else "",
+                    m.scanned_at.isoformat() if m.scanned_at else now,
+                )
+                for m in markets
+            ],
+        )
+        conn.commit()
+
+    def get_pnl_history(self) -> list[dict]:
+        """Daily PnL series with cumulative totals for charting."""
+        conn = self._conn()
+        rows = conn.execute(
+            """SELECT DATE(settled_at) as date, SUM(pnl) as daily_pnl
+               FROM trades WHERE status = 'settled' AND settled_at IS NOT NULL
+               GROUP BY DATE(settled_at) ORDER BY date"""
+        ).fetchall()
+        history = []
+        cumulative = 0.0
+        for row in rows:
+            cumulative += row["daily_pnl"]
+            history.append({
+                "date": row["date"],
+                "daily_pnl": row["daily_pnl"],
+                "cumulative_pnl": round(cumulative, 2),
+            })
+        return history
+
+    def get_recent_trades_with_names(self, limit: int = 20) -> list[dict]:
+        """Get recent trades with market question resolved from snapshots."""
+        conn = self._conn()
+        rows = conn.execute(
+            """SELECT t.*, ms.question
+               FROM trades t
+               LEFT JOIN (
+                   SELECT condition_id, question,
+                          ROW_NUMBER() OVER (PARTITION BY condition_id ORDER BY snapshot_at DESC) as rn
+                   FROM market_snapshots
+               ) ms ON t.market_id = ms.condition_id AND ms.rn = 1
+               ORDER BY t.executed_at DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
         return [dict(r) for r in rows]
 
     def get_daily_pnl(self) -> float:
@@ -124,5 +200,4 @@ class Database:
             "SELECT COALESCE(SUM(pnl), 0) as total FROM trades WHERE settled_at LIKE ? AND status = 'settled'",
             (f"{today}%",),
         ).fetchone()
-        conn.close()
         return row["total"]
