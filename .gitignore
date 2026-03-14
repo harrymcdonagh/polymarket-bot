@@ -10,3 +10,4 @@ dist/
 accounts.db
 model_*.json
 .worktrees/
+.worktrees/
