@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Polymarket Bot Dashboard</title>
+    <title>Polymarket Bot</title>
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
@@ -12,12 +12,12 @@
     <header>
         <h1>Polymarket Bot</h1>
         <div id="status-badge" hx-get="/api/status" hx-trigger="load, every 10s"
-             hx-swap="innerHTML">Loading...</div>
+             hx-swap="innerHTML">Connecting...</div>
         <nav>
-            <button hx-post="/api/scan" hx-swap="none" class="btn">Scan</button>
-            <button hx-post="/api/retrain" hx-swap="none" class="btn">Retrain</button>
-            <button hx-post="/api/loop" hx-swap="none" class="btn">Toggle Loop</button>
-            <button onclick="document.getElementById('settings-modal').showModal()" class="btn">Settings</button>
+            <button hx-post="/api/scan" hx-swap="none" class="btn" onclick="toast('Scan triggered')">Scan</button>
+            <button hx-post="/api/retrain" hx-swap="none" class="btn" onclick="toast('Retrain triggered')">Retrain</button>
+            <button hx-post="/api/loop" hx-swap="none" class="btn" onclick="toast('Loop toggled')">Loop</button>
+            <button onclick="document.getElementById('settings-modal').showModal()" class="btn">Config</button>
         </nav>
     </header>
 
@@ -44,7 +44,7 @@
             </section>
 
             <section class="card">
-                <h2>Live Logs</h2>
+                <h2>Live Feed</h2>
                 <div id="log-feed" class="log-feed" hx-get="/api/logs" hx-trigger="load, every 5s" hx-swap="innerHTML">
                 </div>
             </section>
@@ -58,7 +58,7 @@
     </main>
 
     <dialog id="settings-modal">
-        <h2>Settings</h2>
+        <h2>Configuration</h2>
         <p class="muted">In-memory only. Restart resets to .env values.</p>
         <form id="settings-form">
             <label>BANKROLL <input type="number" name="BANKROLL" step="any"></label>
@@ -72,32 +72,113 @@
     </dialog>
 
     <script>
-    // PnL chart
+    /* ── Escape HTML ── */
+    function esc(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    /* ── Toast notifications ── */
+    function toast(msg) {
+        const el = document.createElement('div');
+        el.className = 'toast';
+        el.textContent = msg;
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 3000);
+    }
+
+    /* ── PnL Chart ── */
     let pnlChart = null;
     async function refreshChart() {
         const resp = await fetch('/api/pnl-history');
         const data = await resp.json();
         const labels = data.map(d => d.date);
         const values = data.map(d => d.cumulative_pnl);
+
         if (!pnlChart) {
             const ctx = document.getElementById('pnl-chart').getContext('2d');
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, 220);
+            gradient.addColorStop(0, 'rgba(0, 255, 136, 0.15)');
+            gradient.addColorStop(0.5, 'rgba(0, 255, 136, 0.03)');
+            gradient.addColorStop(1, 'rgba(0, 255, 136, 0)');
+
             pnlChart = new Chart(ctx, {
                 type: 'line',
-                data: { labels, datasets: [{ label: 'Cumulative PnL ($)', data: values,
-                    borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,0.1)', fill: true }] },
-                options: { responsive: true, scales: { y: { grid: { color: '#333' } },
-                    x: { grid: { color: '#333' } } }, plugins: { legend: { labels: { color: '#ccc' } } } }
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Cumulative PnL ($)',
+                        data: values,
+                        borderColor: '#00ff88',
+                        borderWidth: 1.5,
+                        backgroundColor: gradient,
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        pointHoverBackgroundColor: '#00ff88',
+                        pointHoverBorderColor: '#00ff88',
+                        pointHoverBorderWidth: 2,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#0f1218',
+                            borderColor: '#1e2430',
+                            borderWidth: 1,
+                            titleFont: { family: 'Outfit', size: 11, weight: '600' },
+                            bodyFont: { family: 'JetBrains Mono', size: 12 },
+                            titleColor: '#64748b',
+                            bodyColor: '#00ff88',
+                            padding: 10,
+                            cornerRadius: 2,
+                            displayColors: false,
+                            callbacks: {
+                                label: ctx => `$${ctx.parsed.y.toFixed(2)}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(30, 36, 48, 0.5)', drawTicks: false },
+                            ticks: {
+                                font: { family: 'JetBrains Mono', size: 10 },
+                                color: '#334155',
+                                maxRotation: 0,
+                                maxTicksLimit: 8,
+                            },
+                            border: { display: false },
+                        },
+                        y: {
+                            grid: { color: 'rgba(30, 36, 48, 0.5)', drawTicks: false },
+                            ticks: {
+                                font: { family: 'JetBrains Mono', size: 10 },
+                                color: '#334155',
+                                callback: v => '$' + v,
+                            },
+                            border: { display: false },
+                        }
+                    },
+                    layout: { padding: { top: 4 } }
+                }
             });
         } else {
             pnlChart.data.labels = labels;
             pnlChart.data.datasets[0].data = values;
-            pnlChart.update();
+            pnlChart.update('none');
         }
     }
     refreshChart();
     setInterval(refreshChart, 60000);
 
-    // Settings form submission
+    /* ── Settings ── */
     document.getElementById('settings-form').addEventListener('change', async (e) => {
         const key = e.target.name;
         const value = parseFloat(e.target.value);
@@ -106,62 +187,126 @@
             body: JSON.stringify({key, value})
         });
         const result = await resp.json();
-        if (!result.ok) alert('Error: ' + result.error);
+        if (!result.ok) {
+            toast('Error: ' + result.error);
+        } else {
+            toast(key + ' updated');
+        }
     });
 
-    // Escape HTML to prevent XSS from external data
-    function esc(s) {
-        const d = document.createElement('div');
-        d.textContent = s;
-        return d.innerHTML;
-    }
-
-    // Format htmx responses
+    /* ── htmx Response Formatting ── */
     htmx.on('htmx:beforeSwap', function(evt) {
+
+        /* Status badge */
         if (evt.detail.target.id === 'status-badge') {
-            const data = JSON.parse(evt.detail.xhr.responseText);
-            const mode = data.dry_run ? 'DRY RUN' : 'LIVE';
-            const loop = data.loop_active ? ' | LOOP' : '';
-            const scan = data.scanning ? ' | SCANNING...' : '';
-            const err = data.last_error ? ' | ERR' : '';
-            evt.detail.serverResponse = `<span class="badge ${data.dry_run ? 'badge-dry' : 'badge-live'}">${mode}</span> Cycle #${data.cycle_count}${loop}${scan}${err}`;
+            const d = JSON.parse(evt.detail.xhr.responseText);
+            const mode = d.dry_run ? 'DRY RUN' : 'LIVE';
+            const cls = d.dry_run ? 'badge-dry' : 'badge-live';
+            const loop = d.loop_active ? '<span style="color:var(--ice);margin-left:0.4rem">LOOP</span>' : '';
+            const scan = d.scanning ? '<span style="color:var(--amber);margin-left:0.4rem">SCANNING</span>' : '';
+            evt.detail.serverResponse =
+                `<span class="badge ${cls}">${mode}</span>` +
+                `<span style="color:var(--text-ghost)">Cycle #${d.cycle_count}</span>` +
+                loop + scan +
+                (d.last_error ? '<span style="color:var(--coral);margin-left:0.4rem">ERR</span>' : '');
         }
-        if (evt.detail.target.id === 'trades-table') {
-            const trades = JSON.parse(evt.detail.xhr.responseText);
-            let html = '<table><tr><th>Market</th><th>Side</th><th>Amount</th><th>Status</th><th>PnL</th></tr>';
-            trades.forEach(t => {
-                const name = esc((t.question || t.market_id || '').substring(0, 30));
-                const pnl = t.pnl != null ? `$${t.pnl.toFixed(2)}` : '—';
-                html += `<tr><td>${name}</td><td>${esc(t.side)}</td><td>$${t.amount.toFixed(0)}</td><td>${esc(t.status)}</td><td>${pnl}</td></tr>`;
-            });
-            evt.detail.serverResponse = html + '</table>';
-        }
-        if (evt.detail.target.id === 'markets-list') {
-            const markets = JSON.parse(evt.detail.xhr.responseText);
-            let html = '<table><tr><th>Market</th><th>YES</th><th>Flags</th></tr>';
-            markets.forEach(m => {
-                const flags = esc((m.flags || []).join(', ') || '—');
-                html += `<tr><td>${esc((m.question||'').substring(0,35))}</td><td>${m.yes_price.toFixed(2)}</td><td>${flags}</td></tr>`;
-            });
-            evt.detail.serverResponse = html + '</table>';
-        }
+
+        /* Stats row */
         if (evt.detail.target.className === 'stats-row') {
             const s = JSON.parse(evt.detail.xhr.responseText);
+            const pnlColor = s.total_pnl >= 0 ? 'var(--neon)' : 'var(--coral)';
+            const todayColor = s.today_pnl >= 0 ? 'var(--neon)' : 'var(--coral)';
+            const pnlSign = s.total_pnl >= 0 ? '+' : '';
+            const todaySign = s.today_pnl >= 0 ? '+' : '';
             evt.detail.serverResponse = `
-                <div class="stat-card"><div class="stat-value">${(s.win_rate*100).toFixed(0)}%</div><div class="stat-label">Win Rate (${s.wins}/${s.total_trades})</div></div>
-                <div class="stat-card"><div class="stat-value">$${s.total_pnl.toFixed(2)}</div><div class="stat-label">Total PnL</div></div>
-                <div class="stat-card"><div class="stat-value">$${s.today_pnl.toFixed(2)}</div><div class="stat-label">Today</div></div>
-                <div class="stat-card"><div class="stat-value">${s.open_trades}</div><div class="stat-label">Open Trades</div></div>
-                <div class="stat-card"><div class="stat-value">${s.snapshot_count}</div><div class="stat-label">Snapshots</div></div>`;
+                <div class="stat-card">
+                    <div class="stat-value">${(s.win_rate*100).toFixed(0)}%</div>
+                    <div class="stat-label">Win Rate (${s.wins}/${s.total_trades})</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color:${pnlColor}">${pnlSign}$${Math.abs(s.total_pnl).toFixed(2)}</div>
+                    <div class="stat-label">Total PnL</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color:${todayColor}">${todaySign}$${Math.abs(s.today_pnl).toFixed(2)}</div>
+                    <div class="stat-label">Today</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${s.open_trades}</div>
+                    <div class="stat-label">Open Trades</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${s.snapshot_count}</div>
+                    <div class="stat-label">Snapshots</div>
+                </div>`;
         }
+
+        /* Trades table */
+        if (evt.detail.target.id === 'trades-table') {
+            const trades = JSON.parse(evt.detail.xhr.responseText);
+            if (trades.length === 0) {
+                evt.detail.serverResponse = '<p class="muted">No trades yet.</p>';
+            } else {
+                let html = '<table><tr><th>Market</th><th>Side</th><th>Amount</th><th>Status</th><th>PnL</th></tr>';
+                trades.forEach(t => {
+                    const name = esc((t.question || t.market_id || '').substring(0, 35));
+                    const pnl = t.pnl != null ? t.pnl : null;
+                    const pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '—';
+                    const pnlStyle = pnl !== null ? (pnl >= 0 ? 'color:var(--neon)' : 'color:var(--coral)') : 'color:var(--text-ghost)';
+                    const sideStyle = t.side === 'YES' ? 'color:var(--neon)' : 'color:var(--coral)';
+                    html += `<tr>
+                        <td>${name}</td>
+                        <td style="${sideStyle};font-weight:600">${esc(t.side)}</td>
+                        <td>$${t.amount.toFixed(0)}</td>
+                        <td>${esc(t.status)}</td>
+                        <td style="${pnlStyle};font-weight:500">${pnlStr}</td>
+                    </tr>`;
+                });
+                evt.detail.serverResponse = html + '</table>';
+            }
+        }
+
+        /* Markets list */
+        if (evt.detail.target.id === 'markets-list') {
+            const markets = JSON.parse(evt.detail.xhr.responseText);
+            if (markets.length === 0) {
+                evt.detail.serverResponse = '<p class="muted">No flagged markets.</p>';
+            } else {
+                let html = '<table><tr><th>Market</th><th>YES</th><th>Flags</th></tr>';
+                markets.forEach(m => {
+                    const flags = esc((m.flags || []).join(', ') || '—');
+                    const price = m.yes_price.toFixed(2);
+                    const priceColor = m.yes_price > 0.7 ? 'var(--neon)' : m.yes_price < 0.3 ? 'var(--coral)' : 'var(--text-dim)';
+                    html += `<tr>
+                        <td>${esc((m.question||'').substring(0,40))}</td>
+                        <td style="color:${priceColor};font-weight:500">${price}</td>
+                        <td style="color:var(--amber);font-size:0.7rem">${flags}</td>
+                    </tr>`;
+                });
+                evt.detail.serverResponse = html + '</table>';
+            }
+        }
+
+        /* Log feed */
         if (evt.detail.target.id === 'log-feed') {
             const logs = JSON.parse(evt.detail.xhr.responseText);
-            evt.detail.serverResponse = logs.map(l => `<div class="log-line">${esc(l)}</div>`).join('');
+            if (logs.length === 0) {
+                evt.detail.serverResponse = '<p class="muted">No logs yet.</p>';
+            } else {
+                evt.detail.serverResponse = logs.map(l => `<div class="log-line">${esc(l)}</div>`).join('');
+            }
         }
+
+        /* Lessons */
         if (evt.detail.target.id === 'lessons-list') {
             const lessons = JSON.parse(evt.detail.xhr.responseText);
-            if (lessons.length === 0) { evt.detail.serverResponse = '<p class="muted">No lessons yet.</p>'; }
-            else { evt.detail.serverResponse = '<ul>' + lessons.map(l => `<li><strong>${esc(l.category)}:</strong> ${esc(l.lesson)}</li>`).join('') + '</ul>'; }
+            if (lessons.length === 0) {
+                evt.detail.serverResponse = '<p class="muted">No lessons yet.</p>';
+            } else {
+                evt.detail.serverResponse = '<ul>' + lessons.map(l =>
+                    `<li><strong>${esc(l.category)}</strong> ${esc(l.lesson)}</li>`
+                ).join('') + '</ul>';
+            }
         }
     });
     </script>
