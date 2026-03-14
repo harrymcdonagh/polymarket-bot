@@ -122,31 +122,30 @@ class DashboardService:
                 self._last_error = str(e)
                 logger.error(f"Retrain failed: {e}")
 
-    # Minimum allowed values for numeric settings
-    _SETTING_MIN_VALUES = {
-        "BANKROLL": 0.0,
-        "MAX_BET_FRACTION": 0.0,
-        "CONFIDENCE_THRESHOLD": 0.0,
-        "MIN_EDGE_THRESHOLD": 0.0,
-        "MAX_DAILY_LOSS": 0.0,
-        "LOOP_INTERVAL": 1,
+    _SETTING_VALIDATORS = {
+        "BANKROLL": lambda v: v > 0 or "BANKROLL must be > 0",
+        "MAX_BET_FRACTION": lambda v: 0 < v <= 1 or "MAX_BET_FRACTION must be 0 < x <= 1",
+        "CONFIDENCE_THRESHOLD": lambda v: 0 <= v <= 1 or "CONFIDENCE_THRESHOLD must be 0 <= x <= 1",
+        "MIN_EDGE_THRESHOLD": lambda v: v >= 0 or "MIN_EDGE_THRESHOLD must be >= 0",
+        "MAX_DAILY_LOSS": lambda v: v > 0 or "MAX_DAILY_LOSS must be > 0",
+        "LOOP_INTERVAL": lambda v: v >= 30 or "LOOP_INTERVAL must be >= 30",
     }
 
     def update_settings(self, key: str, value) -> dict:
         if key not in UPDATABLE_SETTINGS:
             return {"ok": False, "error": f"Cannot update '{key}' at runtime"}
-        old_value = getattr(self.settings, key)
-        # Validate numeric bounds before applying
-        if key in self._SETTING_MIN_VALUES:
-            min_val = self._SETTING_MIN_VALUES[key]
+        # Validate before applying
+        validator = self._SETTING_VALIDATORS.get(key)
+        if validator:
             try:
-                if float(value) < min_val:
-                    return {"ok": False, "error": f"'{key}' must be >= {min_val}, got {value}"}
+                result = validator(float(value))
+                if result is not True:
+                    return {"ok": False, "error": str(result)}
             except (TypeError, ValueError) as e:
                 return {"ok": False, "error": str(e)}
+        old_value = getattr(self.settings, key)
         try:
             setattr(self.settings, key, value)
-            Settings.model_validate(self.settings.model_dump())
             return {"ok": True, "key": key, "value": getattr(self.settings, key)}
         except Exception as e:
             setattr(self.settings, key, old_value)
@@ -169,12 +168,13 @@ class DashboardService:
                         await self.pipeline.run_cycle(dry_run=self.dry_run)
                         self._cycle_count += 1
                         self._last_error = None
+                await asyncio.sleep(interval)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self._last_error = str(e)
                 logger.error(f"Loop cycle failed: {e}")
-            await asyncio.sleep(interval)
+                await asyncio.sleep(interval)
 
     async def shutdown(self):
         """Graceful shutdown: cancel loop, wait for scan, cancel settlements, close DB."""

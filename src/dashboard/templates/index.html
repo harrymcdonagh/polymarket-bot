@@ -109,6 +109,13 @@
         if (!result.ok) alert('Error: ' + result.error);
     });
 
+    // Escape HTML to prevent XSS from external data
+    function esc(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
     // Format htmx responses
     htmx.on('htmx:beforeSwap', function(evt) {
         if (evt.detail.target.id === 'status-badge') {
@@ -123,9 +130,9 @@
             const trades = JSON.parse(evt.detail.xhr.responseText);
             let html = '<table><tr><th>Market</th><th>Side</th><th>Amount</th><th>Status</th><th>PnL</th></tr>';
             trades.forEach(t => {
-                const name = (t.question || t.market_id || '').substring(0, 30);
+                const name = esc((t.question || t.market_id || '').substring(0, 30));
                 const pnl = t.pnl != null ? `$${t.pnl.toFixed(2)}` : '—';
-                html += `<tr><td>${name}</td><td>${t.side}</td><td>$${t.amount.toFixed(0)}</td><td>${t.status}</td><td>${pnl}</td></tr>`;
+                html += `<tr><td>${name}</td><td>${esc(t.side)}</td><td>$${t.amount.toFixed(0)}</td><td>${esc(t.status)}</td><td>${pnl}</td></tr>`;
             });
             evt.detail.serverResponse = html + '</table>';
         }
@@ -133,8 +140,8 @@
             const markets = JSON.parse(evt.detail.xhr.responseText);
             let html = '<table><tr><th>Market</th><th>YES</th><th>Flags</th></tr>';
             markets.forEach(m => {
-                const flags = (m.flags || []).join(', ') || '—';
-                html += `<tr><td>${(m.question||'').substring(0,35)}</td><td>${m.yes_price.toFixed(2)}</td><td>${flags}</td></tr>`;
+                const flags = esc((m.flags || []).join(', ') || '—');
+                html += `<tr><td>${esc((m.question||'').substring(0,35))}</td><td>${m.yes_price.toFixed(2)}</td><td>${flags}</td></tr>`;
             });
             evt.detail.serverResponse = html + '</table>';
         }
@@ -149,12 +156,12 @@
         }
         if (evt.detail.target.id === 'log-feed') {
             const logs = JSON.parse(evt.detail.xhr.responseText);
-            evt.detail.serverResponse = logs.map(l => `<div class="log-line">${l}</div>`).join('');
+            evt.detail.serverResponse = logs.map(l => `<div class="log-line">${esc(l)}</div>`).join('');
         }
         if (evt.detail.target.id === 'lessons-list') {
             const lessons = JSON.parse(evt.detail.xhr.responseText);
             if (lessons.length === 0) { evt.detail.serverResponse = '<p class="muted">No lessons yet.</p>'; }
-            else { evt.detail.serverResponse = '<ul>' + lessons.map(l => `<li><strong>${l.category}:</strong> ${l.lesson}</li>`).join('') + '</ul>'; }
+            else { evt.detail.serverResponse = '<ul>' + lessons.map(l => `<li><strong>${esc(l.category)}:</strong> ${esc(l.lesson)}</li>`).join('') + '</ul>'; }
         }
     });
     </script>

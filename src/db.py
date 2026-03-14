@@ -212,8 +212,9 @@ class Database:
         ).fetchone()["s"]
         win_rate = (wins / settled) if settled > 0 else 0.0
         return {
-            "total_trades": total,
-            "settled_trades": settled,
+            "total_trades": settled,
+            "wins": wins,
+            "losses": settled - wins,
             "win_rate": round(win_rate, 4),
             "total_pnl": round(total_pnl, 2),
         }
