@@ -1,0 +1,51 @@
+:root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --green: #4ade80;
+    --red: #f87171;
+    --blue: #60a5fa;
+    --yellow: #fbbf24;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); color: var(--text); padding: 1rem; }
+
+header { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border); margin-bottom: 1rem; flex-wrap: wrap; }
+header h1 { font-size: 1.2rem; color: var(--green); }
+header nav { display: flex; gap: 0.5rem; margin-left: auto; }
+
+.btn { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.85rem; }
+.btn:hover { border-color: var(--blue); }
+
+.badge { padding: 0.2rem 0.5rem; border-radius: 3px; font-size: 0.8rem; font-weight: bold; }
+.badge-dry { background: var(--yellow); color: #000; }
+.badge-live { background: var(--red); color: #fff; }
+
+.stats-row { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; flex: 1; min-width: 120px; text-align: center; }
+.stat-value { font-size: 1.5rem; font-weight: bold; color: var(--green); }
+.stat-label { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.3rem; }
+
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; }
+.card h2 { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.chart-card { grid-column: span 2; }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th, td { padding: 0.4rem 0.6rem; text-align: left; border-bottom: 1px solid var(--border); }
+th { color: var(--text-muted); font-weight: 600; }
+
+.log-feed { max-height: 300px; overflow-y: auto; font-size: 0.8rem; }
+.log-line { padding: 0.15rem 0; border-bottom: 1px solid #1a1f26; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.muted { color: var(--text-muted); font-size: 0.85rem; }
+ul { padding-left: 1.2rem; }
+li { margin-bottom: 0.3rem; font-size: 0.85rem; }
+
+dialog { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; max-width: 500px; }
+dialog::backdrop { background: rgba(0,0,0,0.7); }
+dialog label { display: block; margin-bottom: 0.5rem; font-size: 0.85rem; }
+dialog input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.3rem 0.5rem; border-radius: 3px; margin-top: 0.2rem; font-family: inherit; }
