@@ -31,4 +31,6 @@ class Settings(BaseSettings):
     SPREAD_ALERT_THRESHOLD: float = 0.10
     PRICE_MOVE_ALERT_THRESHOLD: float = 0.15
 
+    LOOP_INTERVAL: int = 3600
+
     model_config = {"env_file": ".env", "extra": "ignore"}

@@ -101,3 +101,128 @@ def test_log_handler_respects_maxlen():
     assert len(buf) == 5
     assert "msg 9" in buf[-1]
     logger.removeHandler(handler)
+
+
+import pytest
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+from src.dashboard.service import DashboardService
+
+
+def test_service_get_stats(tmp_path):
+    with patch("src.dashboard.service.Pipeline") as MockPipeline:
+        MockPipeline.return_value = MagicMock()
+        svc = DashboardService(db_path=str(tmp_path / "test.db"))
+        stats = svc.get_stats()
+        assert "total_trades" in stats
+        assert "win_rate" in stats
+        assert "today_pnl" in stats
+        assert "snapshot_count" in stats
+
+
+def test_service_get_bot_status(tmp_path):
+    with patch("src.dashboard.service.Pipeline") as MockPipeline:
+        MockPipeline.return_value = MagicMock()
+        svc = DashboardService(db_path=str(tmp_path / "test.db"))
+        status = svc.get_bot_status()
+        assert status["loop_active"] is False
+        assert status["cycle_count"] == 0
+        assert "uptime_seconds" in status
+
+
+def test_service_update_settings_valid(tmp_path):
+    with patch("src.dashboard.service.Pipeline") as MockPipeline:
+        MockPipeline.return_value = MagicMock()
+        svc = DashboardService(db_path=str(tmp_path / "test.db"))
+        result = svc.update_settings("BANKROLL", 2000.0)
+        assert result["ok"] is True
+        assert svc.settings.BANKROLL == 2000.0
+
+
+def test_service_update_settings_invalid_key(tmp_path):
+    with patch("src.dashboard.service.Pipeline") as MockPipeline:
+        MockPipeline.return_value = MagicMock()
+        svc = DashboardService(db_path=str(tmp_path / "test.db"))
+        result = svc.update_settings("ANTHROPIC_API_KEY", "hacked")
+        assert result["ok"] is False
+
+
+def test_service_update_settings_invalid_value(tmp_path):
+    with patch("src.dashboard.service.Pipeline") as MockPipeline:
+        MockPipeline.return_value = MagicMock()
+        svc = DashboardService(db_path=str(tmp_path / "test.db"))
+        original = svc.settings.BANKROLL
+        result = svc.update_settings("BANKROLL", -100)
+        assert result["ok"] is False
+        assert svc.settings.BANKROLL == original
+
+
+@pytest.mark.asyncio
+async def test_service_trigger_scan(tmp_path):
+    with patch("src.dashboard.service.Pipeline") as MockPipeline:
+        mock_pipeline = MockPipeline.return_value
+        mock_pipeline.run_cycle = AsyncMock()
+        mock_pipeline.db = MagicMock()
+        mock_pipeline.db.init = MagicMock()
+        svc = DashboardService(db_path=str(tmp_path / "test.db"))
+        svc.pipeline = mock_pipeline
+        result = await svc.trigger_scan(dry_run=True)
+        assert result["status"] == "started"
+
+
+@pytest.mark.asyncio
+async def test_service_trigger_scan_mutex(tmp_path):
+    with patch("src.dashboard.service.Pipeline") as MockPipeline:
+        mock_pipeline = MockPipeline.return_value
+        async def slow_cycle(dry_run=True):
+            await asyncio.sleep(10)
+        mock_pipeline.run_cycle = slow_cycle
+        mock_pipeline.db = MagicMock()
+        mock_pipeline.db.init = MagicMock()
+        svc = DashboardService(db_path=str(tmp_path / "test.db"))
+        svc.pipeline = mock_pipeline
+        result1 = await svc.trigger_scan(dry_run=True)
+        assert result1["status"] == "started"
+        await asyncio.sleep(0)
+        result2 = await svc.trigger_scan(dry_run=True)
+        assert result2["status"] == "already_running"
+
+
+@pytest.mark.asyncio
+async def test_service_trigger_retrain(tmp_path):
+    with patch("src.dashboard.service.Pipeline") as MockPipeline:
+        mock_pipeline = MockPipeline.return_value
+        mock_pipeline.db = MagicMock()
+        mock_pipeline.db.init = MagicMock()
+        svc = DashboardService(db_path=str(tmp_path / "test.db"))
+        svc.pipeline = mock_pipeline
+        with patch("src.dashboard.service.train_from_history", new_callable=AsyncMock) as mock_train:
+            mock_train.return_value = MagicMock()
+            result = await svc.trigger_retrain()
+            assert result["status"] == "started"
+
+
+@pytest.mark.asyncio
+async def test_service_toggle_loop(tmp_path):
+    with patch("src.dashboard.service.Pipeline") as MockPipeline:
+        mock_pipeline = MockPipeline.return_value
+        mock_pipeline.run_cycle = AsyncMock()
+        mock_pipeline.db = MagicMock()
+        mock_pipeline.db.init = MagicMock()
+        svc = DashboardService(db_path=str(tmp_path / "test.db"))
+        svc.pipeline = mock_pipeline
+        result = await svc.toggle_loop(interval=300)
+        assert result["loop"] is True
+        result = await svc.toggle_loop()
+        assert result["loop"] is False
+
+
+def test_service_get_recent_logs(tmp_path):
+    with patch("src.dashboard.service.Pipeline") as MockPipeline:
+        MockPipeline.return_value = MagicMock()
+        svc = DashboardService(db_path=str(tmp_path / "test.db"))
+        svc._log_buffer.append("line 1")
+        svc._log_buffer.append("line 2")
+        logs = svc.get_recent_logs(limit=10)
+        assert len(logs) == 2
+        assert logs[0] == "line 1"

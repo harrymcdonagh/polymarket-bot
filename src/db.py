@@ -201,3 +201,24 @@ class Database:
             (f"{today}%",),
         ).fetchone()
         return row["total"]
+
+    def get_trade_stats(self) -> dict:
+        conn = self._conn()
+        total = conn.execute("SELECT COUNT(*) as n FROM trades").fetchone()["n"]
+        settled = conn.execute("SELECT COUNT(*) as n FROM trades WHERE status = 'settled'").fetchone()["n"]
+        wins = conn.execute("SELECT COUNT(*) as n FROM trades WHERE status = 'settled' AND pnl > 0").fetchone()["n"]
+        total_pnl = conn.execute(
+            "SELECT COALESCE(SUM(pnl), 0) as s FROM trades WHERE status = 'settled'"
+        ).fetchone()["s"]
+        win_rate = (wins / settled) if settled > 0 else 0.0
+        return {
+            "total_trades": total,
+            "settled_trades": settled,
+            "win_rate": round(win_rate, 4),
+            "total_pnl": round(total_pnl, 2),
+        }
+
+    def get_snapshot_count(self) -> int:
+        conn = self._conn()
+        row = conn.execute("SELECT COUNT(*) as n FROM market_snapshots").fetchone()
+        return row["n"]
