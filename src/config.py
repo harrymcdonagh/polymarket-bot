@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -31,6 +32,46 @@ class Settings(BaseSettings):
     SPREAD_ALERT_THRESHOLD: float = 0.10
     PRICE_MOVE_ALERT_THRESHOLD: float = 0.15
 
-    LOOP_INTERVAL: int = 3600
+    # Model hyperparameters
+    XGB_N_ESTIMATORS: int = 100
+    XGB_MAX_DEPTH: int = 4
+    XGB_LEARNING_RATE: float = 0.1
+
+    # Research limits
+    RSS_ENTRY_LIMIT: int = 20
+    SENTIMENT_AMBIGUITY_THRESHOLD: float = 0.6
+
+    # Operational
+    LOG_LEVEL: str = "INFO"
+    LOOP_INTERVAL: int = 300
 
     model_config = {"env_file": ".env", "extra": "ignore"}
+
+    @field_validator("BANKROLL")
+    @classmethod
+    def bankroll_positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("BANKROLL must be positive")
+        return v
+
+    @field_validator("MAX_BET_FRACTION")
+    @classmethod
+    def bet_fraction_range(cls, v: float) -> float:
+        if not 0 < v <= 1:
+            raise ValueError("MAX_BET_FRACTION must be between 0 and 1")
+        return v
+
+    @field_validator("CONFIDENCE_THRESHOLD")
+    @classmethod
+    def confidence_range(cls, v: float) -> float:
+        if not 0 <= v <= 1:
+            raise ValueError("CONFIDENCE_THRESHOLD must be between 0 and 1")
+        return v
+
+    @field_validator("LOG_LEVEL")
+    @classmethod
+    def valid_log_level(cls, v: str) -> str:
+        valid = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        if v.upper() not in valid:
+            raise ValueError(f"LOG_LEVEL must be one of {valid}")
+        return v.upper()
