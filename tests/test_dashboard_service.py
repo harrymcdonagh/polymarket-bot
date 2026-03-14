@@ -70,3 +70,34 @@ def test_db_thread_safe_connections(tmp_path):
     t.start()
     t.join()
     assert thread_conn[0] is not main_conn
+
+
+import logging
+from src.dashboard.log_handler import DashboardLogHandler
+
+
+def test_log_handler_captures_messages():
+    import collections
+    buf = collections.deque(maxlen=100)
+    handler = DashboardLogHandler(buf)
+    logger = logging.getLogger("test.dashboard")
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.info("test message")
+    assert len(buf) == 1
+    assert "test message" in buf[0]
+    logger.removeHandler(handler)
+
+
+def test_log_handler_respects_maxlen():
+    import collections
+    buf = collections.deque(maxlen=5)
+    handler = DashboardLogHandler(buf)
+    logger = logging.getLogger("test.dashboard.overflow")
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    for i in range(10):
+        logger.info(f"msg {i}")
+    assert len(buf) == 5
+    assert "msg 9" in buf[-1]
+    logger.removeHandler(handler)
