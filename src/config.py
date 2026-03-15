@@ -41,6 +41,16 @@ class Settings(BaseSettings):
     RSS_ENTRY_LIMIT: int = 20
     SENTIMENT_AMBIGUITY_THRESHOLD: float = 0.6
 
+    # Research source weights
+    NEWSAPI_KEY: str = ""
+    SOURCE_WEIGHT_NEWSAPI: float = 1.0
+    SOURCE_WEIGHT_RSS_MAJOR: float = 0.9
+    SOURCE_WEIGHT_RSS_PREDICTION: float = 0.8
+    SOURCE_WEIGHT_RSS_GOOGLE: float = 0.7
+    SOURCE_WEIGHT_TWITTER: float = 0.5
+    SOURCE_WEIGHT_REDDIT: float = 0.6
+    RESEARCH_TIMEOUT: int = 10
+
     # Operational
     LOG_LEVEL: str = "INFO"
     LOOP_INTERVAL: int = 300
@@ -75,3 +85,14 @@ class Settings(BaseSettings):
         if v.upper() not in valid:
             raise ValueError(f"LOG_LEVEL must be one of {valid}")
         return v.upper()
+
+    @field_validator(
+        "SOURCE_WEIGHT_NEWSAPI", "SOURCE_WEIGHT_RSS_MAJOR",
+        "SOURCE_WEIGHT_RSS_PREDICTION", "SOURCE_WEIGHT_RSS_GOOGLE",
+        "SOURCE_WEIGHT_TWITTER", "SOURCE_WEIGHT_REDDIT",
+    )
+    @classmethod
+    def weight_range(cls, v: float) -> float:
+        if not 0 < v <= 1:
+            raise ValueError("Source weight must be between 0 (exclusive) and 1 (inclusive)")
+        return v
