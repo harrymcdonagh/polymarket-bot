@@ -72,6 +72,36 @@ def create_app(settings=None, db_path: str = "bot.db") -> FastAPI:
     async def api_status():
         return service.get_bot_status()
 
+    @app.get("/api/activity", response_class=HTMLResponse)
+    async def api_activity():
+        a = service.get_activity()
+        stage = a.get("stage", "idle")
+        detail = a.get("detail", "")
+
+        labels = {
+            "idle": "Idle — Waiting",
+            "checking": "Step 0: Checking Open Trades",
+            "scanning": "Step 1: Scanning Markets",
+            "researching": "Step 2: Researching",
+            "predicting": "Step 3: Predicting",
+            "evaluating": "Step 4: Evaluating Risk",
+            "postmortem": "Step 5: Running Postmortem",
+        }
+        label = labels.get(stage, stage)
+        is_active = stage != "idle"
+        dot_cls = "activity-dot active" if is_active else "activity-dot"
+
+        detail_html = ""
+        if detail:
+            from html import escape
+            detail_html = f'<span class="activity-detail">{escape(detail)}</span>'
+
+        return HTMLResponse(
+            f'<div class="{dot_cls}"></div>'
+            f'<span class="activity-label">{label}</span>'
+            f'{detail_html}'
+        )
+
     @app.get("/api/logs")
     async def api_logs():
         return service.get_recent_logs()

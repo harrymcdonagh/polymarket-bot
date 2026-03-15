@@ -82,11 +82,12 @@ class Database:
         """)
         conn.commit()
 
-    def save_trade(self, market_id: str, side: str, amount: float, price: float, order_id: str | None = None):
+    def save_trade(self, market_id: str, side: str, amount: float, price: float,
+                   order_id: str | None = None, status: str = "pending"):
         conn = self._conn()
         conn.execute(
-            "INSERT INTO trades (market_id, side, amount, price, order_id) VALUES (?, ?, ?, ?, ?)",
-            (market_id, side, amount, price, order_id),
+            "INSERT INTO trades (market_id, side, amount, price, order_id, status) VALUES (?, ?, ?, ?, ?, ?)",
+            (market_id, side, amount, price, order_id, status),
         )
         conn.commit()
 
@@ -188,6 +189,7 @@ class Database:
                           ROW_NUMBER() OVER (PARTITION BY condition_id ORDER BY snapshot_at DESC) as rn
                    FROM market_snapshots
                ) ms ON t.market_id = ms.condition_id AND ms.rn = 1
+               WHERE t.status != 'dry_run'
                ORDER BY t.executed_at DESC LIMIT ?""",
             (limit,),
         ).fetchall()

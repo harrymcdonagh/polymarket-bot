@@ -22,6 +22,10 @@
     </header>
 
     <main>
+        <section class="activity-bar" id="activity-bar"
+                 hx-get="/api/activity" hx-trigger="load, every 2s" hx-swap="innerHTML">
+        </section>
+
         <section class="stats-row" hx-get="/api/stats" hx-trigger="load, every 10s" hx-swap="innerHTML">
         </section>
 

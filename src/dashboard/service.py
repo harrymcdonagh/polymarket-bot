@@ -37,6 +37,8 @@ class DashboardService:
         self._log_buffer: collections.deque = collections.deque(maxlen=200)
         self._last_error: str | None = None
         self._last_scan_results = []
+        self._current_activity = {"stage": "idle", "detail": ""}
+        self._dry_run_trades: list[dict] = []
 
         # Install log handler
         self._log_handler = DashboardLogHandler(self._log_buffer)
@@ -44,7 +46,10 @@ class DashboardService:
 
         # Init pipeline (may fail gracefully)
         try:
-            self.pipeline = Pipeline(settings=self.settings, db_path=db_path)
+            self.pipeline = Pipeline(
+                settings=self.settings, db_path=db_path,
+                status_callback=self._on_activity,
+            )
         except Exception as e:
             logger.warning(f"Pipeline init failed: {e}")
             self.pipeline = None
@@ -61,7 +66,10 @@ class DashboardService:
         }
 
     def get_recent_trades(self, limit: int = 20) -> list[dict]:
-        return self.db.get_recent_trades_with_names(limit)
+        real_trades = self.db.get_recent_trades_with_names(limit)
+        combined = self._dry_run_trades + real_trades
+        combined.sort(key=lambda t: t.get("executed_at", ""), reverse=True)
+        return combined[:limit]
 
     def get_flagged_markets(self) -> list:
         return self._last_scan_results
@@ -84,6 +92,12 @@ class DashboardService:
             "last_error": self._last_error,
         }
 
+    def _on_activity(self, stage: str, detail: str = ""):
+        self._current_activity = {"stage": stage, "detail": detail}
+
+    def get_activity(self) -> dict:
+        return self._current_activity
+
     def get_recent_logs(self, limit: int = 50) -> list[str]:
         logs = list(self._log_buffer)
         return logs[-limit:]
@@ -102,6 +116,8 @@ class DashboardService:
         async with self._scan_lock:
             try:
                 await self.pipeline.run_cycle(dry_run=dry_run)
+                self._last_scan_results = self.pipeline.last_flagged_markets
+                self._dry_run_trades = self.pipeline.dry_run_trades.copy()
                 self._cycle_count += 1
                 self._last_error = None
             except Exception as e:
@@ -177,6 +193,8 @@ class DashboardService:
                 if self.pipeline:
                     async with self._scan_lock:
                         await self.pipeline.run_cycle(dry_run=self.dry_run)
+                        self._last_scan_results = self.pipeline.last_flagged_markets
+                        self._dry_run_trades = self.pipeline.dry_run_trades.copy()
                         self._cycle_count += 1
                         self._last_error = None
                 await asyncio.sleep(interval)

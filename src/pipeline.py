@@ -21,8 +21,10 @@ from src.models import ResearchReport, SentimentResult, ScannedMarket
 logger = logging.getLogger(__name__)
 
 class Pipeline:
-    def __init__(self, settings: Settings | None = None, db_path: str = "bot.db"):
+    def __init__(self, settings: Settings | None = None, db_path: str = "bot.db",
+                 status_callback=None):
         self.settings = settings or Settings()
+        self._status_callback = status_callback
         self.db = Database(db_path)
         self.db.init()
         self.scanner = MarketScanner(self.settings)
@@ -59,6 +61,12 @@ class Pipeline:
             sentiment_analyzer=self.sentiment,
         )
         self._settlement_tasks: list[asyncio.Task] = []
+        self.last_flagged_markets: list[ScannedMarket] = []
+        self.dry_run_trades: list[dict] = []
+
+    def _set_activity(self, stage: str, detail: str = ""):
+        if self._status_callback:
+            self._status_callback(stage, detail)
 
     def _init_executor(self) -> TradeExecutor | None:
         if not self.settings.POLYMARKET_PRIVATE_KEY:
@@ -191,12 +199,15 @@ class Pipeline:
 
     async def run_cycle(self, dry_run: bool = True):
         logger.info("========== STARTING PIPELINE CYCLE ==========")
+        self._set_activity("checking", "Open trades")
 
         await self.check_open_trades()
 
+        self._set_activity("scanning", "Fetching markets")
         markets = await self.scan()
         if not markets:
             logger.info("No markets found, ending cycle")
+            self._set_activity("idle")
             return
 
         # Save snapshots for historical data collection
@@ -204,12 +215,16 @@ class Pipeline:
         logger.info(f"Saved {saved} market snapshots to database")
 
         flagged = [m for m in markets if m.flags]
+        self.last_flagged_markets = flagged
         targets = flagged[:10] if flagged else markets[:5]
 
-        for market in targets:
+        for i, market in enumerate(targets):
             try:
+                self._set_activity("researching", f"[{i+1}/{len(targets)}] {market.question}")
                 research = await self.research(market)
+                self._set_activity("predicting", f"[{i+1}/{len(targets)}] {market.question}")
                 prediction = await self.predict(market, research)
+                self._set_activity("evaluating", f"[{i+1}/{len(targets)}] {market.question}")
                 decision = self.evaluate_risk(prediction)
 
                 if decision.approved and not dry_run:
@@ -230,15 +245,35 @@ class Pipeline:
 
                 elif decision.approved and dry_run:
                     logger.info(f"[DRY RUN] Would bet ${decision.bet_size_usd:.2f} on {prediction.recommended_side}")
+                    self.db.save_trade(
+                        market_id=market.condition_id,
+                        side=prediction.recommended_side,
+                        amount=decision.bet_size_usd,
+                        price=market.yes_price,
+                        order_id=None,
+                        status="dry_run",
+                    )
+                    self.dry_run_trades.append({
+                        "market_id": market.condition_id,
+                        "question": market.question,
+                        "side": prediction.recommended_side,
+                        "amount": decision.bet_size_usd,
+                        "price": market.yes_price,
+                        "status": "dry_run",
+                        "pnl": None,
+                        "executed_at": datetime.now(timezone.utc).isoformat(),
+                    })
 
             except Exception as e:
                 logger.error(f"Pipeline error for {market.question[:50]}: {e}")
                 continue
 
+        self._set_activity("postmortem", "Analyzing settled trades")
         await self.run_postmortem()
 
         self._log_cycle_stats(len(markets), len(targets))
 
+        self._set_activity("idle")
         logger.info("========== CYCLE COMPLETE ==========")
 
     def _log_cycle_stats(self, total_scanned: int, targets_evaluated: int):
