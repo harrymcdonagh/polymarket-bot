@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 UPDATABLE_SETTINGS = {
     "BANKROLL", "MAX_BET_FRACTION", "CONFIDENCE_THRESHOLD",
     "MIN_EDGE_THRESHOLD", "MAX_DAILY_LOSS", "LOOP_INTERVAL",
+    "SOURCE_WEIGHT_NEWSAPI", "SOURCE_WEIGHT_RSS_MAJOR",
+    "SOURCE_WEIGHT_RSS_PREDICTION", "SOURCE_WEIGHT_RSS_GOOGLE",
+    "SOURCE_WEIGHT_TWITTER", "SOURCE_WEIGHT_REDDIT",
+    "RESEARCH_TIMEOUT",
 }
 
 
@@ -129,6 +133,13 @@ class DashboardService:
         "MIN_EDGE_THRESHOLD": lambda v: v >= 0 or "MIN_EDGE_THRESHOLD must be >= 0",
         "MAX_DAILY_LOSS": lambda v: v > 0 or "MAX_DAILY_LOSS must be > 0",
         "LOOP_INTERVAL": lambda v: v >= 30 or "LOOP_INTERVAL must be >= 30",
+        "SOURCE_WEIGHT_NEWSAPI": lambda v: 0 < v <= 1 or "Weight must be 0 < x <= 1",
+        "SOURCE_WEIGHT_RSS_MAJOR": lambda v: 0 < v <= 1 or "Weight must be 0 < x <= 1",
+        "SOURCE_WEIGHT_RSS_PREDICTION": lambda v: 0 < v <= 1 or "Weight must be 0 < x <= 1",
+        "SOURCE_WEIGHT_RSS_GOOGLE": lambda v: 0 < v <= 1 or "Weight must be 0 < x <= 1",
+        "SOURCE_WEIGHT_TWITTER": lambda v: 0 < v <= 1 or "Weight must be 0 < x <= 1",
+        "SOURCE_WEIGHT_REDDIT": lambda v: 0 < v <= 1 or "Weight must be 0 < x <= 1",
+        "RESEARCH_TIMEOUT": lambda v: v >= 1 or "RESEARCH_TIMEOUT must be >= 1",
     }
 
     def update_settings(self, key: str, value) -> dict:

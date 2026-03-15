@@ -63,3 +63,107 @@ def test_rss_parse_feed(tmp_path):
     results = researcher.parse_feed(str(feed_file))
     assert len(results) == 1
     assert "strong trend" in results[0]["text"]
+
+
+def test_rss_feed_registry_has_entries():
+    from src.research.rss import FEED_REGISTRY
+    assert len(FEED_REGISTRY) >= 6
+    # Check that each entry has required fields
+    for feed in FEED_REGISTRY:
+        assert "url" in feed
+        assert "weight" in feed
+        assert "source_tag" in feed
+        assert "is_query_feed" in feed
+
+
+def test_rss_source_is_always_available():
+    from src.research.rss import RSSSource
+    source = RSSSource()
+    assert source.is_available() is True
+
+
+@pytest.mark.asyncio
+async def test_rss_source_search_returns_research_results():
+    from src.research.rss import RSSSource
+    from src.research.base import ResearchResult
+
+    source = RSSSource()
+    # Mock parse_feed to return predictable data with title key
+    source._researcher.parse_feed = MagicMock(return_value=[
+        {"title": "Test election news", "text": "Test election news. Details here", "link": "https://x.com", "published": "2026-03-14", "source": "rss"}
+    ])
+    results = await source.search("election")
+    assert all(isinstance(r, ResearchResult) for r in results)
+
+
+@pytest.mark.asyncio
+async def test_rss_source_filters_static_feeds_by_relevance():
+    """Integration test: static feed entries are filtered by relevance."""
+    from src.research.rss import RSSSource
+
+    # Use a single static feed for this test
+    test_feeds = [
+        {"url": "https://example.com/feed", "weight": 0.9, "source_tag": "rss_test", "is_query_feed": False},
+    ]
+    source = RSSSource(feeds=test_feeds)
+    source._researcher.parse_feed = MagicMock(return_value=[
+        {"title": "US Election Results 2026", "text": "US Election Results 2026. Detailed analysis", "link": "", "published": "", "source": "rss"},
+        {"title": "Best recipes for pasta", "text": "Best recipes for pasta. Italian cuisine", "link": "", "published": "", "source": "rss"},
+    ])
+    results = await source.search("election")
+    assert len(results) == 1
+    assert "Election" in results[0].text
+
+
+def test_rss_relevance_filter():
+    from src.research.rss import _is_relevant
+    assert _is_relevant("US Election Results 2026", "election") is True
+    assert _is_relevant("Best recipes for pasta", "election") is False
+
+
+@pytest.mark.asyncio
+async def test_twitter_source_wraps_researcher():
+    from src.research.twitter import TwitterSource
+
+    mock_tweet = MagicMock()
+    mock_tweet.rawContent = "Tweet about elections"
+    mock_tweet.date = "2026-03-14"
+    mock_tweet.likeCount = 5
+
+    async def mock_search(query, limit=50):
+        for t in [mock_tweet]:
+            yield t
+
+    mock_api = MagicMock()
+    mock_api.search = mock_search
+
+    source = TwitterSource(api=mock_api)
+    assert source.is_available() is True
+    results = await source.search("elections")
+    assert len(results) == 1
+    assert results[0].source == "twitter"
+    assert results[0].weight == 0.5
+
+
+def test_twitter_source_not_available_when_api_fails():
+    from src.research.twitter import TwitterSource
+    source = TwitterSource(api=None)
+    # Force the availability check to fail
+    source._checked_available = False
+    assert source.is_available() is False
+
+
+def test_reddit_source_not_available_without_credentials():
+    from src.research.reddit import RedditSource
+    from src.config import Settings
+    s = Settings(REDDIT_CLIENT_ID="", REDDIT_CLIENT_SECRET="")
+    source = RedditSource(settings=s)
+    assert source.is_available() is False
+
+
+def test_reddit_source_available_with_credentials():
+    from src.research.reddit import RedditSource
+    from src.config import Settings
+    s = Settings(REDDIT_CLIENT_ID="abc", REDDIT_CLIENT_SECRET="xyz")
+    source = RedditSource(settings=s)
+    assert source.is_available() is True
