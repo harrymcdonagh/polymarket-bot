@@ -119,3 +119,51 @@ def test_rss_relevance_filter():
     from src.research.rss import _is_relevant
     assert _is_relevant("US Election Results 2026", "election") is True
     assert _is_relevant("Best recipes for pasta", "election") is False
+
+
+@pytest.mark.asyncio
+async def test_twitter_source_wraps_researcher():
+    from src.research.twitter import TwitterSource
+
+    mock_tweet = MagicMock()
+    mock_tweet.rawContent = "Tweet about elections"
+    mock_tweet.date = "2026-03-14"
+    mock_tweet.likeCount = 5
+
+    async def mock_search(query, limit=50):
+        for t in [mock_tweet]:
+            yield t
+
+    mock_api = MagicMock()
+    mock_api.search = mock_search
+
+    source = TwitterSource(api=mock_api)
+    assert source.is_available() is True
+    results = await source.search("elections")
+    assert len(results) == 1
+    assert results[0].source == "twitter"
+    assert results[0].weight == 0.5
+
+
+def test_twitter_source_not_available_when_api_fails():
+    from src.research.twitter import TwitterSource
+    source = TwitterSource(api=None)
+    # Force the availability check to fail
+    source._checked_available = False
+    assert source.is_available() is False
+
+
+def test_reddit_source_not_available_without_credentials():
+    from src.research.reddit import RedditSource
+    from src.config import Settings
+    s = Settings(REDDIT_CLIENT_ID="", REDDIT_CLIENT_SECRET="")
+    source = RedditSource(settings=s)
+    assert source.is_available() is False
+
+
+def test_reddit_source_available_with_credentials():
+    from src.research.reddit import RedditSource
+    from src.config import Settings
+    s = Settings(REDDIT_CLIENT_ID="abc", REDDIT_CLIENT_SECRET="xyz")
+    source = RedditSource(settings=s)
+    assert source.is_available() is True

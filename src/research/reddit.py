@@ -37,3 +37,42 @@ class RedditResearcher:
             except Exception as e:
                 logger.warning(f"Reddit search failed for r/{sub_name}: {e}")
         return results
+
+
+import asyncio
+from src.research.base import ResearchSource, ResearchResult
+
+
+class RedditSource(ResearchSource):
+    """Reddit adapter conforming to ResearchSource interface."""
+
+    name = "reddit"
+    default_weight = 0.6
+
+    def __init__(self, settings=None, weight: float = 0.6):
+        self.default_weight = weight
+        self._settings = settings
+        self._researcher = None
+
+    def is_available(self) -> bool:
+        s = self._settings
+        if s is None:
+            return False
+        return bool(s.REDDIT_CLIENT_ID and s.REDDIT_CLIENT_SECRET)
+
+    async def search(self, query: str) -> list[ResearchResult]:
+        if not self.is_available():
+            return []
+        if self._researcher is None:
+            self._researcher = RedditResearcher(settings=self._settings)
+        raw = await asyncio.to_thread(self._researcher.search, query)
+        return [
+            ResearchResult(
+                text=r["text"],
+                link="",
+                published=None,
+                source=self.name,
+                weight=self.default_weight,
+            )
+            for r in raw
+        ]
