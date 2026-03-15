@@ -4,9 +4,11 @@ from datetime import datetime, timezone
 from src.config import Settings
 from src.db import Database
 from src.scanner.scanner import MarketScanner
-from src.research.twitter import TwitterResearcher
-from src.research.reddit import RedditResearcher
-from src.research.rss import RSSResearcher
+from src.research.pipeline import ResearchPipeline
+from src.research.newsapi import NewsAPISource
+from src.research.twitter import TwitterSource
+from src.research.reddit import RedditSource
+from src.research.rss import RSSSource
 from src.research.sentiment import SentimentAnalyzer
 from src.predictor.features import extract_features
 from src.predictor.xgb_model import PredictionModel
@@ -35,9 +37,27 @@ class Pipeline:
         self.postmortem = PostmortemAnalyzer(settings=self.settings, db=self.db)
         self.executor = self._init_executor()
 
-        self._twitter = None
-        self._reddit = None
-        self._rss = RSSResearcher(entry_limit=self.settings.RSS_ENTRY_LIMIT)
+        self.research_pipeline = ResearchPipeline(
+            sources=[
+                NewsAPISource(
+                    api_key=self.settings.NEWSAPI_KEY,
+                    weight=self.settings.SOURCE_WEIGHT_NEWSAPI,
+                ),
+                RSSSource(
+                    entry_limit=self.settings.RSS_ENTRY_LIMIT,
+                    weight_google=self.settings.SOURCE_WEIGHT_RSS_GOOGLE,
+                    weight_major=self.settings.SOURCE_WEIGHT_RSS_MAJOR,
+                    weight_prediction=self.settings.SOURCE_WEIGHT_RSS_PREDICTION,
+                ),
+                TwitterSource(weight=self.settings.SOURCE_WEIGHT_TWITTER),
+                RedditSource(
+                    settings=self.settings,
+                    weight=self.settings.SOURCE_WEIGHT_REDDIT,
+                ),
+            ],
+            timeout=self.settings.RESEARCH_TIMEOUT,
+            sentiment_analyzer=self.sentiment,
+        )
         self._settlement_tasks: list[asyncio.Task] = []
 
     def _init_executor(self) -> TradeExecutor | None:
@@ -74,39 +94,19 @@ class Pipeline:
         logger.info(f"=== STEP 2: Researching '{market.question[:60]}' ===")
         query = market.question
 
-        twitter_task = self._search_twitter(query)
-        reddit_task = self._search_reddit(query)
-        rss_task = asyncio.to_thread(self._rss.search, query)
+        weighted_result = await self.research_pipeline.search_and_analyze(query)
 
-        twitter_results, reddit_results, rss_results = await asyncio.gather(
-            twitter_task, reddit_task, rss_task, return_exceptions=True
-        )
-
-        if isinstance(twitter_results, Exception):
-            logger.warning(f"Twitter research failed: {twitter_results}")
-            twitter_results = []
-        if isinstance(reddit_results, Exception):
-            logger.warning(f"Reddit research failed: {reddit_results}")
-            reddit_results = []
-        if isinstance(rss_results, Exception):
-            logger.warning(f"RSS research failed: {rss_results}")
-            rss_results = []
-
+        # Convert to SentimentResult objects for backward compat
         sentiments = []
-        for source_name, results in [("twitter", twitter_results), ("reddit", reddit_results), ("rss", rss_results)]:
-            if not results:
-                continue
-            texts = [r["text"] for r in results]
-            analyzed = self.sentiment.analyze_batch(texts)
-            agg = self.sentiment.aggregate(analyzed)
+        for source_name, breakdown in weighted_result["source_breakdown"].items():
             sentiments.append(SentimentResult(
                 source=source_name,
                 query=query,
-                positive_ratio=agg["positive_ratio"],
-                negative_ratio=agg["negative_ratio"],
-                neutral_ratio=agg["neutral_ratio"],
-                sample_size=agg["sample_size"],
-                avg_compound_score=agg["avg_score"],
+                positive_ratio=breakdown.get("positive_ratio", 0),
+                negative_ratio=breakdown.get("negative_ratio", 0),
+                neutral_ratio=breakdown.get("neutral_ratio", 0),
+                sample_size=breakdown["count"],
+                avg_compound_score=breakdown["avg_score"],
                 collected_at=datetime.now(timezone.utc),
             ))
 
@@ -257,17 +257,6 @@ class Pipeline:
             f"  Total PnL: ${stats['total_pnl']:.2f} | Today: ${daily_pnl:.2f}\n"
             f"  Snapshots in DB: {snapshots}"
         )
-
-    async def _search_twitter(self, query: str) -> list[dict]:
-        if self._twitter is None:
-            from twscrape import API
-            self._twitter = TwitterResearcher(API())
-        return await self._twitter.search(query, limit=50)
-
-    async def _search_reddit(self, query: str) -> list[dict]:
-        if self._reddit is None:
-            self._reddit = RedditResearcher(settings=self.settings)
-        return await asyncio.to_thread(self._reddit.search, query)
 
     async def _generate_narrative(self, market: ScannedMarket, sentiments: list[SentimentResult]) -> str:
         sentiment_text = "\n".join(

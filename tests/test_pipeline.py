@@ -25,6 +25,24 @@ def _mock_market():
     )
 
 
+_MOCK_SEARCH_RESULT = {
+    "positive_ratio": 0.5,
+    "negative_ratio": 0.3,
+    "neutral_ratio": 0.2,
+    "weighted_avg_score": 0.6,
+    "sample_size": 5,
+    "source_breakdown": {
+        "rss_google": {
+            "count": 5,
+            "avg_score": 0.6,
+            "positive_ratio": 0.5,
+            "negative_ratio": 0.3,
+            "neutral_ratio": 0.2,
+        }
+    },
+}
+
+
 @pytest.mark.asyncio
 async def test_pipeline_scan_only_mode(tmp_path):
     settings = Settings(ANTHROPIC_API_KEY="test")
@@ -59,15 +77,13 @@ async def test_pipeline_dry_run_cycle(tmp_path):
     market = _mock_market()
 
     with patch("src.pipeline.MarketScanner") as MockScanner, \
-         patch.object(Pipeline, "_search_twitter", new_callable=AsyncMock, return_value=[]), \
-         patch.object(Pipeline, "_search_reddit", new_callable=AsyncMock, return_value=[]), \
+         patch("src.pipeline.ResearchPipeline") as MockRP, \
          patch.object(Pipeline, "_generate_narrative", new_callable=AsyncMock, return_value="Test narrative"):
 
         MockScanner.return_value.scan = AsyncMock(return_value=[market])
+        MockRP.return_value.search_and_analyze = AsyncMock(return_value=_MOCK_SEARCH_RESULT)
 
         pipeline = Pipeline(settings=settings, db_path=str(tmp_path / "test.db"))
-        pipeline._rss = MagicMock()
-        pipeline._rss.search.return_value = []
         pipeline.postmortem = MagicMock()
         pipeline.postmortem.run_full_postmortem = AsyncMock(return_value=[])
 
@@ -82,15 +98,13 @@ async def test_pipeline_saves_snapshots(tmp_path):
     market = _mock_market()
 
     with patch("src.pipeline.MarketScanner") as MockScanner, \
-         patch.object(Pipeline, "_search_twitter", new_callable=AsyncMock, return_value=[]), \
-         patch.object(Pipeline, "_search_reddit", new_callable=AsyncMock, return_value=[]), \
+         patch("src.pipeline.ResearchPipeline") as MockRP, \
          patch.object(Pipeline, "_generate_narrative", new_callable=AsyncMock, return_value="Test"):
 
         MockScanner.return_value.scan = AsyncMock(return_value=[market])
+        MockRP.return_value.search_and_analyze = AsyncMock(return_value=_MOCK_SEARCH_RESULT)
 
         pipeline = Pipeline(settings=settings, db_path=str(tmp_path / "test.db"))
-        pipeline._rss = MagicMock()
-        pipeline._rss.search.return_value = []
         pipeline.postmortem = MagicMock()
         pipeline.postmortem.run_full_postmortem = AsyncMock(return_value=[])
 
@@ -103,3 +117,17 @@ async def test_pipeline_no_executor_without_key(tmp_path):
     settings = Settings(ANTHROPIC_API_KEY="test", POLYMARKET_PRIVATE_KEY="")
     pipeline = Pipeline(settings=settings, db_path=str(tmp_path / "test.db"))
     assert pipeline.executor is None
+
+
+@pytest.mark.asyncio
+async def test_pipeline_uses_research_pipeline(tmp_path):
+    """Pipeline.research() should delegate to ResearchPipeline."""
+    from src.research.pipeline import ResearchPipeline
+
+    settings = Settings(ANTHROPIC_API_KEY="test")
+
+    with patch("src.pipeline.MarketScanner"):
+        pipeline = Pipeline(settings=settings, db_path=str(tmp_path / "test.db"))
+
+    assert hasattr(pipeline, "research_pipeline")
+    assert isinstance(pipeline.research_pipeline, ResearchPipeline)
