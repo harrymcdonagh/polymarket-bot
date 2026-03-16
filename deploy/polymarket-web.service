@@ -1,0 +1,18 @@
+[Unit]
+Description=Polymarket Bot - Web Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=polymarket
+Group=polymarket
+WorkingDirectory=/opt/polymarket-bot
+EnvironmentFile=/opt/polymarket-bot/.env
+ExecStart=/opt/polymarket-bot/venv/bin/python run.py --web --host=0.0.0.0
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
