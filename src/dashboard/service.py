@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 UPDATABLE_SETTINGS = {
     "BANKROLL", "MAX_BET_FRACTION", "CONFIDENCE_THRESHOLD",
-    "MIN_EDGE_THRESHOLD", "MAX_DAILY_LOSS", "LOOP_INTERVAL",
+    "MIN_EDGE_THRESHOLD", "MAX_DAILY_LOSS", "LOOP_INTERVAL", "SETTLEMENT_INTERVAL",
     "SOURCE_WEIGHT_NEWSAPI", "SOURCE_WEIGHT_RSS_MAJOR",
     "SOURCE_WEIGHT_RSS_PREDICTION", "SOURCE_WEIGHT_RSS_GOOGLE",
     "SOURCE_WEIGHT_TWITTER", "SOURCE_WEIGHT_REDDIT",
@@ -35,6 +35,7 @@ class DashboardService:
         self._started_at = datetime.now(timezone.utc)
         self._scan_lock = asyncio.Lock()
         self._loop_task: asyncio.Task | None = None
+        self._settlement_task: asyncio.Task | None = None
         self._log_buffer: collections.deque = collections.deque(maxlen=200)
         self._last_error: str | None = None
         self._last_scan_results = []
@@ -172,6 +173,7 @@ class DashboardService:
         "MIN_EDGE_THRESHOLD": lambda v: v >= 0 or "MIN_EDGE_THRESHOLD must be >= 0",
         "MAX_DAILY_LOSS": lambda v: v > 0 or "MAX_DAILY_LOSS must be > 0",
         "LOOP_INTERVAL": lambda v: v >= 30 or "LOOP_INTERVAL must be >= 30",
+        "SETTLEMENT_INTERVAL": lambda v: v >= 30 or "SETTLEMENT_INTERVAL must be >= 30",
         "SOURCE_WEIGHT_NEWSAPI": lambda v: 0 < v <= 1 or "Weight must be 0 < x <= 1",
         "SOURCE_WEIGHT_RSS_MAJOR": lambda v: 0 < v <= 1 or "Weight must be 0 < x <= 1",
         "SOURCE_WEIGHT_RSS_PREDICTION": lambda v: 0 < v <= 1 or "Weight must be 0 < x <= 1",
@@ -204,10 +206,16 @@ class DashboardService:
     async def toggle_loop(self, interval: int | None = None) -> dict:
         if self._loop_task and not self._loop_task.done():
             self._loop_task.cancel()
+            if self._settlement_task and not self._settlement_task.done():
+                self._settlement_task.cancel()
             self._loop_task = None
+            self._settlement_task = None
             return {"loop": False}
         interval = interval or self.settings.LOOP_INTERVAL
         self._loop_task = asyncio.create_task(self._loop(interval))
+        self._settlement_task = asyncio.create_task(
+            self._settlement_loop(self.settings.SETTLEMENT_INTERVAL)
+        )
         return {"loop": True, "interval": interval}
 
     async def _loop(self, interval: int):
@@ -228,14 +236,35 @@ class DashboardService:
                 logger.error(f"Loop cycle failed: {e}")
                 await asyncio.sleep(interval)
 
+    async def _settlement_loop(self, interval: int):
+        from src.settler.settler import Settler
+        if not self.pipeline:
+            return
+        settler = Settler(
+            db=self.pipeline.db, notifier=self.pipeline.notifier,
+            postmortem=self.pipeline.postmortem,
+            gamma_url=self.pipeline.settings.POLYMARKET_GAMMA_URL,
+        )
+        await asyncio.sleep(60)  # let first pipeline cycle run first
+        while True:
+            try:
+                logger.info("=== SETTLEMENT CHECK ===")
+                await settler.run()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Settlement check failed: {e}")
+            await asyncio.sleep(interval)
+
     async def shutdown(self):
         """Graceful shutdown: cancel loop, wait for scan, cancel settlements, close DB."""
-        if self._loop_task and not self._loop_task.done():
-            self._loop_task.cancel()
-            try:
-                await asyncio.wait_for(self._loop_task, timeout=5)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass
+        for task in [self._loop_task, self._settlement_task]:
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await asyncio.wait_for(task, timeout=5)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
         if self._scan_lock.locked():
             try:
                 await asyncio.wait_for(self._scan_lock.acquire(), timeout=30)

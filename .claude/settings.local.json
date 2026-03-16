@@ -52,7 +52,18 @@
       "Bash(python -m pytest tests/test_fred.py -v 2>&1)",
       "Bash(python -m pytest tests/test_coingecko.py -v 2>&1)",
       "Bash(git checkout:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(find /d/polymarket-bot -type f -name \"*.py\" | xargs grep -l \"if __name__ == ['\\\\\"]__main__['\\\\\"]\" 2>/dev/null | head -20)",
+      "Bash(ls -la /d/polymarket-bot/*.py 2>/dev/null)",
+      "Bash(python -m pytest tests/ -x -q 2>&1 | tail -20)",
+      "Bash(python -m pytest tests/ -x -q 2>&1 | tail -10)",
+      "WebFetch(domain:www.metaculus.com)",
+      "WebSearch",
+      "WebFetch(domain:colab.research.google.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('src/research/metaculus.py'\\).read\\(\\)\\); print\\('syntax ok'\\)\")",
+      "Bash(python -m pytest tests/test_settler.py tests/test_dashboard_service.py -x -q 2>&1 | tail -15)",
+      "Bash(python -c \"from run import main; print\\('OK'\\)\" 2>&1)"
     ]
   }
 }

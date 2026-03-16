@@ -96,26 +96,52 @@ def main():
 
     if "--loop" in sys.argv:
         interval = settings.LOOP_INTERVAL
+        settle_interval = settings.SETTLEMENT_INTERVAL
         for arg in sys.argv:
             if arg.startswith("--interval="):
                 interval = int(arg.split("=")[1])
-        logger.info(f"=== LOOP MODE: running every {interval}s ===")
-        asyncio.run(_loop(pipeline, dry_run, interval))
+            if arg.startswith("--settle-interval="):
+                settle_interval = int(arg.split("=")[1])
+        logger.info(f"=== LOOP MODE: pipeline every {interval}s, settlement every {settle_interval}s ===")
+        asyncio.run(_loop(pipeline, dry_run, interval, settle_interval))
     else:
         asyncio.run(pipeline.run_cycle(dry_run=dry_run))
 
 
-async def _loop(pipeline, dry_run: bool, interval: int):
+async def _loop(pipeline, dry_run: bool, interval: int, settle_interval: int = 1800):
     logger = logging.getLogger("polymarket-bot")
     if pipeline.notifier.is_enabled:
         await pipeline.notifier.send(pipeline.notifier.format_startup())
-    while True:
-        try:
-            await pipeline.run_cycle(dry_run=dry_run)
-        except Exception as e:
-            logger.error(f"Cycle failed: {e}")
-        logger.info(f"Sleeping {interval}s until next cycle...")
-        await asyncio.sleep(interval)
+
+    from src.settler.settler import Settler
+    settler = Settler(
+        db=pipeline.db, notifier=pipeline.notifier,
+        postmortem=pipeline.postmortem,
+        gamma_url=pipeline.settings.POLYMARKET_GAMMA_URL,
+    )
+
+    async def _pipeline_loop():
+        while True:
+            try:
+                await pipeline.run_cycle(dry_run=dry_run)
+            except Exception as e:
+                logger.error(f"Cycle failed: {e}")
+            logger.info(f"Sleeping {interval}s until next pipeline cycle...")
+            await asyncio.sleep(interval)
+
+    async def _settlement_loop():
+        # Wait a bit so the first pipeline cycle runs first
+        await asyncio.sleep(60)
+        while True:
+            try:
+                logger.info("=== SETTLEMENT CHECK ===")
+                await settler.run()
+            except Exception as e:
+                logger.error(f"Settlement check failed: {e}")
+            logger.info(f"Sleeping {settle_interval}s until next settlement check...")
+            await asyncio.sleep(settle_interval)
+
+    await asyncio.gather(_pipeline_loop(), _settlement_loop())
 
 
 async def _settle_loop(settler, interval: int):
