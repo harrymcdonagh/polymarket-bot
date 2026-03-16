@@ -1,8 +1,10 @@
 import asyncio
+import base64
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -37,6 +39,26 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
         await service.shutdown()
 
     app = FastAPI(title="Polymarket Bot Dashboard", lifespan=lifespan)
+
+    password = settings.DASHBOARD_PASSWORD if settings else ""
+
+    if password:
+        @app.middleware("http")
+        async def basic_auth(request: Request, call_next):
+            auth = request.headers.get("Authorization", "")
+            if auth.startswith("Basic "):
+                try:
+                    decoded = base64.b64decode(auth[6:]).decode()
+                    _, pwd = decoded.split(":", 1)
+                    if secrets.compare_digest(pwd, password):
+                        return await call_next(request)
+                except Exception:
+                    pass
+            return Response(
+                status_code=401,
+                headers={"WWW-Authenticate": "Basic realm=\"Polymarket Bot\""},
+                content="Unauthorized",
+            )
 
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
