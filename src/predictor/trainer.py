@@ -88,6 +88,20 @@ def market_to_features(market: dict) -> dict | None:
             "sentiment_convergence": 0.5,
             "narrative_alignment": 0.0,
             "has_research_data": 0,
+            # Structured data defaults (no historical structured data available)
+            "clob_bid_ask_spread": 0.0,
+            "clob_buy_depth": 0.0,
+            "clob_sell_depth": 0.0,
+            "clob_imbalance": 0.5,
+            "clob_midpoint_vs_gamma": 0.0,
+            "crypto_price_usd": 0.0,
+            "crypto_24h_change": 0.0,
+            "crypto_market_cap": 0.0,
+            "crypto_is_relevant": 0.0,
+            "fred_cpi_latest": 0.0,
+            "fred_fed_funds_rate": 0.0,
+            "fred_unemployment": 0.0,
+            "fred_is_relevant": 0.0,
         }
 
         # Label: 1 if YES won, 0 if NO won

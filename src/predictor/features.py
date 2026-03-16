@@ -2,8 +2,9 @@ import math
 from src.models import ScannedMarket, ScanFlag
 
 
-def extract_features(market: ScannedMarket, sentiment_agg: dict) -> dict:
+def extract_features(market: ScannedMarket, sentiment_agg: dict, structured_data: dict | None = None) -> dict:
     """Extract features for XGBoost from market data and sentiment."""
+    sd = structured_data or {}
     pos = sentiment_agg.get("positive_ratio", 0)
     neg = sentiment_agg.get("negative_ratio", 0)
     neu = sentiment_agg.get("neutral_ratio", 0)
@@ -52,4 +53,20 @@ def extract_features(market: ScannedMarket, sentiment_agg: dict) -> dict:
         "sentiment_convergence": 1.0 - sentiment_std,  # 1 = all sources agree, 0 = total disagreement
         "narrative_alignment": narrative_alignment,  # -1 to +1
         "has_research_data": 1 if sample_size > 0 else 0,  # flag: did research return anything?
+        # CLOB features (5)
+        "clob_bid_ask_spread": sd.get("clob_bid_ask_spread", 0.0),
+        "clob_buy_depth": math.log1p(sd.get("clob_buy_depth", 0.0)),
+        "clob_sell_depth": math.log1p(sd.get("clob_sell_depth", 0.0)),
+        "clob_imbalance": sd.get("clob_imbalance", 0.5),
+        "clob_midpoint_vs_gamma": sd.get("clob_midpoint_vs_gamma", 0.0),
+        # CoinGecko features (4)
+        "crypto_price_usd": math.log1p(sd.get("crypto_price_usd", 0.0)),
+        "crypto_24h_change": sd.get("crypto_24h_change", 0.0),
+        "crypto_market_cap": math.log1p(sd.get("crypto_market_cap", 0.0)),
+        "crypto_is_relevant": sd.get("crypto_is_relevant", 0.0),
+        # FRED features (4)
+        "fred_cpi_latest": sd.get("fred_cpi_latest", 0.0),
+        "fred_fed_funds_rate": sd.get("fred_fed_funds_rate", 0.0),
+        "fred_unemployment": sd.get("fred_unemployment", 0.0),
+        "fred_is_relevant": sd.get("fred_is_relevant", 0.0),
     }

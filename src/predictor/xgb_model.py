@@ -12,6 +12,15 @@ FEATURE_ORDER = [
     "sentiment_neutral_ratio", "sentiment_avg_score", "sentiment_sample_size",
     "sentiment_polarity", "price_sentiment_gap",
     "sentiment_convergence", "narrative_alignment", "has_research_data",
+    # CLOB order book (5)
+    "clob_bid_ask_spread", "clob_buy_depth", "clob_sell_depth",
+    "clob_imbalance", "clob_midpoint_vs_gamma",
+    # CoinGecko crypto (4)
+    "crypto_price_usd", "crypto_24h_change", "crypto_market_cap",
+    "crypto_is_relevant",
+    # FRED economic (4)
+    "fred_cpi_latest", "fred_fed_funds_rate", "fred_unemployment",
+    "fred_is_relevant",
 ]
 
 
