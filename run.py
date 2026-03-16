@@ -37,10 +37,19 @@ def main():
     if "--web" in sys.argv:
         from src.dashboard.web import create_app
         import uvicorn
+        import os
+
+        os.makedirs(os.path.dirname(settings.DB_PATH) or ".", exist_ok=True)
+
+        host = "127.0.0.1"
+        for arg in sys.argv:
+            if arg.startswith("--host="):
+                host = arg.split("=")[1]
+
         fastapi_app = create_app(settings=settings)
         fastapi_app.state.service.dry_run = "--live" not in sys.argv
-        logger.info("Starting web dashboard on http://127.0.0.1:8050")
-        uvicorn.run(fastapi_app, host="127.0.0.1", port=8050, log_level=settings.LOG_LEVEL.lower())
+        logger.info(f"Starting web dashboard on http://{host}:8050")
+        uvicorn.run(fastapi_app, host=host, port=8050, log_level=settings.LOG_LEVEL.lower())
         return
 
     if "--settle" in sys.argv:
