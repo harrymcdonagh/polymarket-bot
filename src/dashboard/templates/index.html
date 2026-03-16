@@ -231,7 +231,7 @@
         const data = await resp.json();
         const el = document.getElementById('markets-list');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No flagged markets.</p>'; return; }
-        let html = '<table><colgroup><col style="width:auto"><col style="width:60px"><col style="width:90px"><col style="width:60px"></colgroup><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th></tr>';
+        let html = '<table><colgroup><col style="width:auto"><col style="width:50px"><col style="width:130px"><col style="width:60px"></colgroup><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th></tr>';
         data.items.forEach(m => {
             const price = m.yes_price.toFixed(2);
             const priceColor = m.yes_price > 0.7 ? 'var(--neon)' : m.yes_price < 0.3 ? 'var(--red)' : 'var(--text-secondary)';
@@ -239,7 +239,7 @@
             if (m.trade_status) {
                 resultHtml = `<span style="color:var(--neon);font-weight:600">${esc(m.recommended_side)} $${m.trade_amount.toFixed(0)}</span>`;
             } else if (m.approved === 0 && m.rejection_reason) {
-                const reason = m.rejection_reason.length > 25 ? m.rejection_reason.substring(0, 25) + '...' : m.rejection_reason;
+                const reason = m.rejection_reason;
                 resultHtml = `<span style="color:var(--red);font-size:0.65rem">${esc(reason)}</span>`;
             } else if (m.recommended_side) {
                 resultHtml = `<span style="color:var(--amber)">${esc(m.recommended_side)}</span>`;
