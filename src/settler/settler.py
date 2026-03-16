@@ -153,6 +153,8 @@ class Settler:
                             actual_outcome=outcome,
                             pnl=pnl,
                             reasoning=f"Edge was {pred['edge']:.2%}, confidence {pred['confidence']:.2f}",
+                            predicted_side=trade["side"],
+                            was_correct=was_correct,
                         )
                     except Exception as e:
                         logger.error(f"Postmortem failed for trade {trade['id']}: {e}")

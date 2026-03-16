@@ -202,7 +202,7 @@
         if (data.total === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
         let html = '<table><tr><th>Market</th><th>Side</th><th>Amount</th><th>Status</th><th>PnL</th></tr>';
         data.items.forEach(t => {
-            const name = esc((t.question || t.market_id || '').substring(0, 40));
+            const name = esc(t.question || t.market_id || '');
             const pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
             const pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '\u2014';
             const pnlStyle = pnl !== null ? (pnl >= 0 ? 'color:var(--neon)' : 'color:var(--red)') : 'color:var(--text-ghost)';
@@ -250,7 +250,7 @@
                 ? `<span style="color:var(--blue);font-weight:500">${(m.edge * 100).toFixed(1)}%</span>`
                 : '<span style="color:var(--text-ghost)">\u2014</span>';
             html += `<tr>
-                <td>${esc((m.question||'').substring(0,40))}</td>
+                <td>${esc(m.question||'')}</td>
                 <td style="color:${priceColor};font-weight:600">${price}</td>
                 <td>${resultHtml}</td>
                 <td>${edgeHtml}</td>

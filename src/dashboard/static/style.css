@@ -419,14 +419,25 @@ th {
 }
 
 td {
-    padding: 0.45rem 0.6rem;
+    padding: 0.5rem 0.6rem;
     border-bottom: 1px solid var(--border-subtle);
-    color: var(--text-secondary);
+    color: var(--text);
     transition: color 0.15s var(--ease);
 }
 
+td:first-child {
+    word-break: break-word;
+    min-width: 200px;
+    max-width: 400px;
+    white-space: normal;
+    line-height: 1.45;
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+}
+
 tr:hover td {
-    color: var(--text);
+    color: #fff;
     background: var(--neon-subtle);
 }
 
