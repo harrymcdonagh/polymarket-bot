@@ -69,7 +69,7 @@ class Pipeline:
                     weight=self.settings.SOURCE_WEIGHT_REDDIT,
                 ),
                 GoogleTrendsSource(weight=self.settings.SOURCE_WEIGHT_GOOGLE_TRENDS),
-                MetaculusSource(weight=self.settings.SOURCE_WEIGHT_METACULUS),
+                MetaculusSource(weight=self.settings.SOURCE_WEIGHT_METACULUS, api_token=self.settings.METACULUS_API_TOKEN),
                 PredictItSource(weight=self.settings.SOURCE_WEIGHT_PREDICTIT),
                 WikipediaSource(weight=self.settings.SOURCE_WEIGHT_WIKIPEDIA),
             ],

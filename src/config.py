@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     SENTIMENT_USE_LLM: bool = True
     SENTIMENT_LLM_THRESHOLD: float = 0.4
 
+    # Metaculus API
+    METACULUS_API_TOKEN: str = ""
+
     # FRED API
     FRED_API_KEY: str = ""
 

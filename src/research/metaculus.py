@@ -5,23 +5,33 @@ import httpx
 from src.research.base import ResearchSource, ResearchResult
 
 logger = logging.getLogger(__name__)
-METACULUS_API = "https://www.metaculus.com/api/questions/"
+METACULUS_API = "https://www.metaculus.com/api2/questions/"
 
 class MetaculusSource(ResearchSource):
     """Fetches community forecasts from Metaculus superforecasters."""
     name = "metaculus"
 
-    def __init__(self, weight: float = 0.9):
+    def __init__(self, weight: float = 0.9, api_token: str = ""):
         self.default_weight = weight
+        self.api_token = api_token
 
     def is_available(self) -> bool:
-        return False  # Metaculus API requires authentication since early 2026
+        return bool(self.api_token)
 
     async def search(self, query: str) -> list[ResearchResult]:
         try:
-            headers = {"User-Agent": "polymarket-bot/1.0 (research; +https://github.com)"}
+            headers = {
+                "Authorization": f"Token {self.api_token}",
+                "User-Agent": "polymarket-bot/1.0 (research; +https://github.com)",
+            }
             async with httpx.AsyncClient(timeout=10, headers=headers) as client:
-                resp = await client.get(METACULUS_API, params={"search": query, "status": "open", "type": "forecast", "limit": 5})
+                resp = await client.get(METACULUS_API, params={
+                    "search": query,
+                    "status": "open",
+                    "type": "forecast",
+                    "limit": 5,
+                    "order_by": "-activity",
+                })
                 if resp.status_code != 200:
                     logger.warning(f"Metaculus API returned {resp.status_code}")
                     return []
