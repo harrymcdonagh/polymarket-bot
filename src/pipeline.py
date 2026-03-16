@@ -2,6 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from src.config import Settings
+from src.activity import write_activity
 from src.db import Database
 from src.scanner.scanner import MarketScanner
 from src.research.pipeline import ResearchPipeline
@@ -72,6 +73,7 @@ class Pipeline:
     def _set_activity(self, stage: str, detail: str = ""):
         if self._status_callback:
             self._status_callback(stage, detail)
+        write_activity(stage, detail)
 
     def _init_executor(self) -> TradeExecutor | None:
         if not self.settings.POLYMARKET_PRIVATE_KEY:

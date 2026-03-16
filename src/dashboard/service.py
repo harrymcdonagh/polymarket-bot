@@ -6,6 +6,7 @@ from src.config import Settings
 from src.db import Database
 from src.pipeline import Pipeline
 from src.dashboard.log_handler import DashboardLogHandler
+from src.activity import read_activity
 
 try:
     from src.predictor.trainer import train_from_history
@@ -96,6 +97,10 @@ class DashboardService:
         self._current_activity = {"stage": stage, "detail": detail}
 
     def get_activity(self) -> dict:
+        # Try reading from shared file first (for cross-process status)
+        file_activity = read_activity()
+        if file_activity.get("updated_at"):
+            return file_activity
         return self._current_activity
 
     def get_recent_logs(self, limit: int = 50) -> list[str]:
