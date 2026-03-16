@@ -208,7 +208,6 @@ class Database:
                           ROW_NUMBER() OVER (PARTITION BY condition_id ORDER BY snapshot_at DESC) as rn
                    FROM market_snapshots
                ) ms ON t.market_id = ms.condition_id AND ms.rn = 1
-               WHERE t.status != 'dry_run'
                ORDER BY t.executed_at DESC LIMIT ?""",
             (limit,),
         ).fetchall()
@@ -226,14 +225,23 @@ class Database:
     def get_trade_stats(self) -> dict:
         conn = self._conn()
         total = conn.execute("SELECT COUNT(*) as n FROM trades").fetchone()["n"]
-        settled = conn.execute("SELECT COUNT(*) as n FROM trades WHERE status = 'settled'").fetchone()["n"]
-        wins = conn.execute("SELECT COUNT(*) as n FROM trades WHERE status = 'settled' AND pnl > 0").fetchone()["n"]
+        settled = conn.execute(
+            "SELECT COUNT(*) as n FROM trades WHERE status IN ('settled', 'dry_run_settled')"
+        ).fetchone()["n"]
+        wins = conn.execute(
+            "SELECT COUNT(*) as n FROM trades WHERE status IN ('settled', 'dry_run_settled') AND (pnl > 0 OR hypothetical_pnl > 0)"
+        ).fetchone()["n"]
         total_pnl = conn.execute(
-            "SELECT COALESCE(SUM(pnl), 0) as s FROM trades WHERE status = 'settled'"
+            "SELECT COALESCE(SUM(COALESCE(pnl, hypothetical_pnl, 0)), 0) as s FROM trades WHERE status IN ('settled', 'dry_run_settled')"
         ).fetchone()["s"]
+        dry_run_pending = conn.execute(
+            "SELECT COUNT(*) as n FROM trades WHERE status = 'dry_run'"
+        ).fetchone()["n"]
         win_rate = (wins / settled) if settled > 0 else 0.0
         return {
-            "total_trades": settled,
+            "total_trades": total,
+            "settled_trades": settled,
+            "dry_run_pending": dry_run_pending,
             "wins": wins,
             "losses": settled - wins,
             "win_rate": round(win_rate, 4),
