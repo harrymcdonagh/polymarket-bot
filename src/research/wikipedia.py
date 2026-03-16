@@ -56,7 +56,8 @@ class WikipediaSource(ResearchSource):
 
     async def search(self, query: str) -> list[ResearchResult]:
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
+            headers = {"User-Agent": "polymarket-bot/1.0 (research; +https://github.com)"}
+            async with httpx.AsyncClient(timeout=10, headers=headers) as client:
                 resp = await client.get(WIKIPEDIA_CURRENT_EVENTS)
                 if resp.status_code != 200:
                     logger.warning(f"Wikipedia API returned {resp.status_code}")

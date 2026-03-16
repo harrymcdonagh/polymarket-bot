@@ -19,7 +19,8 @@ class MetaculusSource(ResearchSource):
 
     async def search(self, query: str) -> list[ResearchResult]:
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
+            headers = {"User-Agent": "polymarket-bot/1.0 (research; +https://github.com)"}
+            async with httpx.AsyncClient(timeout=10, headers=headers) as client:
                 resp = await client.get(METACULUS_API, params={"search": query, "status": "open", "type": "forecast", "limit": 5})
                 if resp.status_code != 200:
                     logger.warning(f"Metaculus API returned {resp.status_code}")
