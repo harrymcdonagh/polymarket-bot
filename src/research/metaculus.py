@@ -5,7 +5,7 @@ import httpx
 from src.research.base import ResearchSource, ResearchResult
 
 logger = logging.getLogger(__name__)
-METACULUS_API = "https://www.metaculus.com/api2/questions/"
+METACULUS_API = "https://www.metaculus.com/api/questions/"
 
 class MetaculusSource(ResearchSource):
     """Fetches community forecasts from Metaculus superforecasters."""
