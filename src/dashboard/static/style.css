@@ -384,12 +384,16 @@ main {
 
 .chart-card {
     grid-column: span 2;
-    min-height: 280px;
+    min-height: 380px;
     padding: 1.1rem 1.2rem;
 }
 
 .chart-card canvas {
-    max-height: 220px;
+    max-height: 320px;
+}
+
+.card-full {
+    grid-column: span 2;
 }
 
 /* ══════════════════════════════════════
@@ -782,7 +786,7 @@ dialog .btn {
 
 @media (max-width: 1100px) {
     .grid { grid-template-columns: 1fr; }
-    .chart-card { grid-column: span 1; }
+    .chart-card, .card-full { grid-column: span 1; }
 }
 
 @media (max-width: 768px) {
