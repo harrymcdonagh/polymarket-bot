@@ -11,6 +11,7 @@ FEATURE_ORDER = [
     "sentiment_positive_ratio", "sentiment_negative_ratio",
     "sentiment_neutral_ratio", "sentiment_avg_score", "sentiment_sample_size",
     "sentiment_polarity", "price_sentiment_gap",
+    "sentiment_convergence", "narrative_alignment", "has_research_data",
 ]
 
 

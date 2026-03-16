@@ -62,21 +62,16 @@ def market_to_features(market: dict) -> dict | None:
         spread = abs(1.0 - yes_price - no_price)
         daily_volume = volume / max(30, 1)  # Rough daily estimate
 
-        # Use actual market characteristics the model can learn from.
-        # We sample yes_price from a distribution around the base rate
-        # to give the model varied price inputs rather than a constant.
-        import random
-        base_rate = 0.5
-        simulated_yes = base_rate + random.gauss(0, 0.15)
-        simulated_yes = max(0.05, min(0.95, simulated_yes))
-
+        # Use real market data — no synthetic price generation
+        # For Gamma API fallback, we use volume/liquidity features only
+        # (prices are resolved so they don't help for training)
         features = {
-            "yes_price": simulated_yes,
-            "no_price": 1.0 - simulated_yes,
+            "yes_price": 0.5,  # Unknown pre-resolution price, use neutral
+            "no_price": 0.5,
             "spread": spread,
             "log_liquidity": math.log1p(liquidity),
             "log_volume_24h": math.log1p(daily_volume),
-            "days_to_resolution": 30,  # Unknown for historical, use default
+            "days_to_resolution": 30,  # Unknown for historical
             "volume_liquidity_ratio": daily_volume / max(liquidity, 1),
             "flag_wide_spread": 1 if spread > 0.10 else 0,
             "flag_high_volume": 1 if volume > 50000 else 0,
@@ -88,7 +83,10 @@ def market_to_features(market: dict) -> dict | None:
             "sentiment_avg_score": 0.5,
             "sentiment_sample_size": 0,
             "sentiment_polarity": 0.0,
-            "price_sentiment_gap": simulated_yes - 0.33,
+            "price_sentiment_gap": 0.0,
+            "sentiment_convergence": 0.5,
+            "narrative_alignment": 0.0,
+            "has_research_data": 0,
         }
 
         # Label: 1 if YES won, 0 if NO won
@@ -127,10 +125,42 @@ async def train_from_history(db_path: str = "data/polymarket.db",
             feature_dicts.append(features)
             labels.append(label)
 
+        # 80/20 train/test split for validation
+        split_idx = int(len(feature_dicts) * 0.8)
+        if split_idx < 8:
+            split_idx = len(feature_dicts)  # too few for split, use all
+
+        train_features = feature_dicts[:split_idx]
+        train_labels = labels[:split_idx]
+        test_features = feature_dicts[split_idx:]
+        test_labels = labels[split_idx:]
+
         model = PredictionModel()
-        model.train(feature_dicts, labels)
+        model.train(train_features, train_labels)
+
+        # Evaluate on test set if we have one
+        if test_features:
+            correct = 0
+            brier_sum = 0.0
+            for feat, actual in zip(test_features, test_labels):
+                prob = model.predict(feat)
+                if prob is not None:
+                    predicted_class = 1 if prob > 0.5 else 0
+                    if predicted_class == actual:
+                        correct += 1
+                    brier_sum += (prob - actual) ** 2
+            accuracy = correct / len(test_features)
+            brier = brier_sum / len(test_features)
+            logger.info(
+                f"Validation: accuracy={accuracy:.2%}, Brier={brier:.4f} "
+                f"(n={len(test_features)}, random baseline: accuracy=50%, Brier=0.25)"
+            )
+
+        # Log feature importances
+        _log_feature_importances(model)
+
         model.save(model_path)
-        logger.info(f"Model trained on {len(labels)} real trades, saved to {model_path}")
+        logger.info(f"Model trained on {len(train_labels)} trades, saved to {model_path}")
         db.close()
         return model
 
@@ -139,8 +169,22 @@ async def train_from_history(db_path: str = "data/polymarket.db",
     return await _train_from_gamma_api(model_path)
 
 
+def _log_feature_importances(model: PredictionModel):
+    """Log XGBoost feature importances to help identify useful signals."""
+    if model.model is None:
+        return
+    try:
+        importances = model.model.feature_importances_
+        pairs = sorted(zip(FEATURE_ORDER, importances), key=lambda x: x[1], reverse=True)
+        top = pairs[:10]
+        lines = [f"  {name}: {imp:.4f}" for name, imp in top]
+        logger.info("Top feature importances:\n" + "\n".join(lines))
+    except Exception as e:
+        logger.debug(f"Could not log feature importances: {e}")
+
+
 async def _train_from_gamma_api(model_path: str = "model_xgb.json") -> PredictionModel:
-    """Original training from Gamma API resolved markets."""
+    """Fallback training from Gamma API resolved markets (no synthetic prices)."""
     markets = await fetch_resolved_markets(limit=2000)
 
     samples = []
@@ -163,6 +207,7 @@ async def _train_from_gamma_api(model_path: str = "model_xgb.json") -> Predictio
 
     model = PredictionModel()
     model.train(features, labels)
+    _log_feature_importances(model)
     model.save(model_path)
     logger.info(f"Model saved to {model_path}")
     return model

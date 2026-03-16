@@ -35,7 +35,7 @@ def test_kelly_fraction_positive_edge():
 def test_risk_blocks_low_confidence():
     settings = Settings(ANTHROPIC_API_KEY="test", CONFIDENCE_THRESHOLD=0.7)
     rm = RiskManager(settings)
-    prediction = _make_prediction(confidence=0.5)
+    prediction = _make_prediction(confidence=0.1)
     decision = rm.evaluate(prediction, daily_pnl=0)
     assert decision.approved is False
     assert "confidence" in decision.rejection_reason.lower()

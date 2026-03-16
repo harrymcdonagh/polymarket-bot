@@ -155,12 +155,15 @@ class MarketScanner:
         if volume > 50000:
             flags.append(ScanFlag.HIGH_VOLUME)
 
-        # Price spike: large price move relative to threshold
+        # Price spike: YES price far from 0.5 with high volume suggests strong conviction
         try:
-            price_change = abs(float(market.get("bestAsk", 0)) - float(market.get("bestBid", 0)))
-            if price_change >= self.settings.PRICE_MOVE_ALERT_THRESHOLD:
-                flags.append(ScanFlag.PRICE_SPIKE)
-        except (TypeError, ValueError):
+            prices = json.loads(market.get("outcomePrices", "[]"))
+            if len(prices) >= 2:
+                yes_p = float(prices[0])
+                price_deviation = abs(yes_p - 0.5)
+                if price_deviation >= self.settings.PRICE_MOVE_ALERT_THRESHOLD and volume > 20000:
+                    flags.append(ScanFlag.PRICE_SPIKE)
+        except (json.JSONDecodeError, TypeError, ValueError):
             pass
 
         # Mispriced: spread implies prices don't sum to ~1.0

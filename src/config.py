@@ -21,9 +21,10 @@ class Settings(BaseSettings):
     # Risk parameters
     MAX_BET_FRACTION: float = 0.05
     MIN_EDGE_THRESHOLD: float = 0.08
-    CONFIDENCE_THRESHOLD: float = 0.7
+    CONFIDENCE_THRESHOLD: float = 0.5
     MAX_DAILY_LOSS: float = 100.0
     BANKROLL: float = 1000.0
+    POLYMARKET_FEE: float = 0.02
 
     # Scanner parameters
     MIN_LIQUIDITY: float = 5000.0

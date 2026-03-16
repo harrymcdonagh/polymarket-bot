@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+from datetime import datetime, timezone
 from difflib import SequenceMatcher
 
 from src.research.base import ResearchSource, ResearchResult
@@ -42,18 +44,40 @@ class ResearchPipeline:
         self.timeout = timeout
         self.sentiment = sentiment_analyzer or SentimentAnalyzer(use_transformer=False)
 
+    def _expand_query(self, query: str) -> list[str]:
+        """Generate search query variants to improve research coverage."""
+        queries = [query]
+        # Strip common prediction market prefixes for a cleaner search
+        clean = query
+        for prefix in ("Will ", "Will the ", "Is ", "Are ", "Does ", "Do ", "Has ", "Have "):
+            if clean.startswith(prefix):
+                clean = clean[len(prefix):]
+                break
+        # Remove trailing question mark
+        clean = clean.rstrip("?").strip()
+        if clean and clean != query:
+            queries.append(clean)
+        # Add "prediction" variant for better results
+        if len(clean) < 80:
+            queries.append(f"{clean} prediction forecast")
+        return queries[:3]  # max 3 variants
+
     async def search(self, query: str) -> list[ResearchResult]:
-        """Fan out query to all available sources, deduplicate results."""
+        """Fan out query variants to all available sources, deduplicate results."""
         available = [s for s in self.sources if s.is_available()]
         if not available:
             logger.warning("No research sources available")
             return []
 
+        # Generate query variants for broader coverage
+        queries = self._expand_query(query)
+
         tasks = []
         source_names = []
         for source in available:
-            tasks.append(self._search_with_timeout(source, query))
-            source_names.append(source.name)
+            for q in queries:
+                tasks.append(self._search_with_timeout(source, q))
+                source_names.append(source.name)
 
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -68,7 +92,7 @@ class ResearchPipeline:
         if not all_results and available:
             logger.error(f"All {len(available)} research sources returned zero results for '{query[:60]}' — predictions will lack sentiment data")
         else:
-            logger.info(f"Research: {len(all_results)} results from {len(available)} sources, {len(deduped)} after dedup")
+            logger.info(f"Research: {len(all_results)} results from {len(available)} sources ({len(queries)} queries), {len(deduped)} after dedup")
         return deduped
 
     async def search_and_analyze(self, query: str) -> dict:
@@ -91,8 +115,18 @@ class ResearchPipeline:
         neu_weight = 0
         source_breakdown: dict[str, dict] = {}
 
+        now = datetime.now(timezone.utc)
         for result, sent in zip(results, sentiments):
-            w = result.weight
+            # Apply recency decay: articles from today = full weight, 7 days ago = 0.5x
+            recency_factor = 1.0
+            if result.published:
+                try:
+                    pub = result.published if result.published.tzinfo else result.published.replace(tzinfo=timezone.utc)
+                    hours_old = max(0, (now - pub).total_seconds() / 3600)
+                    recency_factor = math.exp(-0.004 * hours_old)  # half-life ~7 days
+                except (TypeError, ValueError):
+                    pass
+            w = result.weight * recency_factor
             total_weight += w
             weighted_score += sent["score"] * w
 

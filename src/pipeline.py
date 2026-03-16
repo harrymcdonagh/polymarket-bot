@@ -11,6 +11,7 @@ from src.research.newsapi import NewsAPISource
 from src.research.twitter import TwitterSource
 from src.research.reddit import RedditSource
 from src.research.rss import RSSSource
+from src.research.google_trends import GoogleTrendsSource
 from src.research.sentiment import SentimentAnalyzer
 from src.predictor.features import extract_features
 from src.predictor.xgb_model import PredictionModel
@@ -59,6 +60,7 @@ class Pipeline:
                     settings=self.settings,
                     weight=self.settings.SOURCE_WEIGHT_REDDIT,
                 ),
+                GoogleTrendsSource(weight=0.6),
             ],
             timeout=self.settings.RESEARCH_TIMEOUT,
             sentiment_analyzer=self.sentiment,
@@ -146,9 +148,11 @@ class Pipeline:
             avg_neu = sum(s.neutral_ratio for s in research.sentiments) / len(research.sentiments)
             avg_score = sum(s.avg_compound_score for s in research.sentiments) / len(research.sentiments)
             total_samples = sum(s.sample_size for s in research.sentiments)
+            source_scores = [s.avg_compound_score for s in research.sentiments]
         else:
             avg_pos = avg_neg = avg_neu = avg_score = 0
             total_samples = 0
+            source_scores = []
 
         sentiment_agg = {
             "positive_ratio": avg_pos,
@@ -156,11 +160,18 @@ class Pipeline:
             "neutral_ratio": avg_neu,
             "avg_score": avg_score,
             "sample_size": total_samples,
+            "source_scores": source_scores,
+            "narrative_alignment": research.narrative_vs_odds_alignment,
         }
 
         features = extract_features(market, sentiment_agg)
         xgb_prob = self.xgb_model.predict(features)
-        prediction = await self.calibrator.calibrate(market, research, xgb_prob)
+
+        # Feed lessons into calibrator for better predictions
+        recent_lessons = [l["lesson"] for l in self.db.get_lessons()[-10:]]
+        prediction = await self.calibrator.calibrate(
+            market, research, xgb_prob, lessons=recent_lessons,
+        )
 
         logger.info(
             f"Prediction: {prediction.recommended_side} | "

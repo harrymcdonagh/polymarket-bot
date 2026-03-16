@@ -91,7 +91,7 @@ def test_trainer_market_to_features_valid():
     assert result is not None
     assert result["label"] == 1
     assert "features" in result
-    assert len(result["features"]) == 17
+    assert len(result["features"]) == 20
 
 
 def test_trainer_market_to_features_rejects_unresolved():
