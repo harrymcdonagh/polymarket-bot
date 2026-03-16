@@ -43,6 +43,30 @@ def main():
         uvicorn.run(fastapi_app, host="127.0.0.1", port=8050, log_level=settings.LOG_LEVEL.lower())
         return
 
+    if "--settle" in sys.argv:
+        from src.settler.settler import Settler
+        from src.notifications.telegram import TelegramNotifier
+        from src.db import Database
+        from src.postmortem.postmortem import PostmortemAnalyzer
+        import os
+
+        os.makedirs(os.path.dirname(settings.DB_PATH) or ".", exist_ok=True)
+        db = Database(settings.DB_PATH)
+        db.init()
+        notifier = TelegramNotifier(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
+        postmortem = PostmortemAnalyzer(settings=settings, db=db)
+        settler = Settler(db=db, notifier=notifier, postmortem=postmortem,
+                          gamma_url=settings.POLYMARKET_GAMMA_URL)
+
+        interval = 3600
+        for arg in sys.argv:
+            if arg.startswith("--interval="):
+                interval = int(arg.split("=")[1])
+
+        logger.info(f"=== SETTLEMENT MONITOR: checking every {interval}s ===")
+        asyncio.run(_settle_loop(settler, interval))
+        return
+
     dry_run = "--live" not in sys.argv
 
     if dry_run:
@@ -77,6 +101,17 @@ async def _loop(pipeline, dry_run: bool, interval: int):
         except Exception as e:
             logger.error(f"Cycle failed: {e}")
         logger.info(f"Sleeping {interval}s until next cycle...")
+        await asyncio.sleep(interval)
+
+
+async def _settle_loop(settler, interval: int):
+    logger = logging.getLogger("polymarket-bot")
+    while True:
+        try:
+            await settler.run()
+        except Exception as e:
+            logger.error(f"Settlement cycle failed: {e}")
+        logger.info(f"Sleeping {interval}s until next settlement check...")
         await asyncio.sleep(interval)
 
 
