@@ -17,7 +17,7 @@ Liquidity: ${liquidity:,.0f}
 24h Volume: ${volume:,.0f}
 Days to resolution: {days_to_resolution}
 
-XGBoost model estimate: {xgb_probability:.2%}
+XGBoost model estimate: {xgb_probability}
 
 Research summary:
 {narrative_summary}
@@ -60,7 +60,7 @@ class Calibrator:
             liquidity=market.liquidity,
             volume=market.volume_24h,
             days_to_resolution=market.days_to_resolution or "unknown",
-            xgb_probability=xgb_probability,
+            xgb_probability=f"{xgb_probability:.2%}" if xgb_probability is not None else "No trained model",
             narrative_summary=research.narrative_summary,
             sentiment_summary=sentiment_summary,
         )
@@ -77,12 +77,17 @@ class Calibrator:
             llm_probability = max(0.01, min(0.99, float(data["probability"])))
             reasoning = data.get("reasoning", "")
         except Exception as e:
-            logger.warning(f"LLM calibration failed: {e}, using XGBoost only")
-            llm_probability = xgb_probability
-            reasoning = f"LLM calibration failed ({e}), using XGBoost estimate"
+            logger.warning(f"LLM calibration failed: {e}, falling back")
+            llm_probability = xgb_probability if xgb_probability is not None else market.yes_price
+            reasoning = f"LLM calibration failed ({e}), using fallback estimate"
 
-        # Weighted average: 40% XGBoost, 60% LLM
-        predicted_prob = 0.4 * xgb_probability + 0.6 * llm_probability
+        # Combine predictions: if XGB is trained, blend 40/60; otherwise LLM only
+        if xgb_probability is not None:
+            predicted_prob = 0.4 * xgb_probability + 0.6 * llm_probability
+            model_agreement = 1.0 - abs(xgb_probability - llm_probability)
+        else:
+            predicted_prob = llm_probability
+            model_agreement = 0.5  # moderate confidence without XGB cross-check
 
         # Determine side and edge
         # Compare predicted probability directly against market YES price.
@@ -95,7 +100,6 @@ class Calibrator:
             edge = market.yes_price - predicted_prob
 
         # Confidence based on agreement between models and edge size
-        model_agreement = 1.0 - abs(xgb_probability - llm_probability)
         confidence = min(1.0, (model_agreement * 0.5 + min(abs(edge) * 5, 1.0) * 0.5))
 
         return Prediction(
@@ -103,7 +107,7 @@ class Calibrator:
             question=market.question,
             market_yes_price=market.yes_price,
             predicted_probability=predicted_prob,
-            xgb_probability=xgb_probability,
+            xgb_probability=xgb_probability if xgb_probability is not None else predicted_prob,
             llm_probability=llm_probability,
             edge=edge,
             confidence=confidence,

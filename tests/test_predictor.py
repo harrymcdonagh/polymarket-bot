@@ -52,7 +52,8 @@ def test_model_predict_returns_probability():
         "price_sentiment_gap": 0.0,
     }
     prob = model.predict(features)
-    assert 0.0 <= prob <= 1.0
+    # Untrained model returns None
+    assert prob is None
 
 
 def test_model_train_and_predict():

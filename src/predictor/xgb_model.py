@@ -38,11 +38,10 @@ class PredictionModel:
         self.model.fit(X, y)
         logger.info("XGBoost model trained on %d samples", len(labels))
 
-    def predict(self, features: dict) -> float:
-        """Return predicted probability of YES outcome."""
+    def predict(self, features: dict) -> float | None:
+        """Return predicted probability of YES outcome, or None if no model."""
         if self.model is None:
-            # No trained model: return market price as baseline
-            return features.get("yes_price", 0.5)
+            return None
         X = self._features_to_array(features)
         return float(self.model.predict_proba(X)[0][1])
 

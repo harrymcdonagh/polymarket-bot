@@ -28,7 +28,10 @@
       "Bash(cd D:/polymarket-bot && python -m pytest tests/ -v --tb=short 2>&1 | tail -40)",
       "Bash(cd D:/polymarket-bot && python -m pytest tests/test_web.py tests/test_web_auth.py -v --tb=short 2>&1 | tail -25)",
       "Bash(cd D:/polymarket-bot && python -m pytest tests/ -v --tb=short 2>&1 | tail -30)",
-      "Bash(cd D:/polymarket-bot && python -m pytest tests/test_web.py tests/test_web_auth.py tests/test_db_migration.py -v --tb=short 2>&1 | tail -25)"
+      "Bash(cd D:/polymarket-bot && python -m pytest tests/test_web.py tests/test_web_auth.py tests/test_db_migration.py -v --tb=short 2>&1 | tail -25)",
+      "Bash(cd D:/polymarket-bot && python -m pytest tests/ -v --tb=short 2>&1 | tail -20)",
+      "Bash(cd D:/polymarket-bot && python -m pytest tests/test_predictor.py -v --tb=short 2>&1 | tail -30)",
+      "Bash(cd D:/polymarket-bot && python -m pytest tests/test_predictor.py -v --tb=short 2>&1 | tail -15)"
     ]
   }
 }
