@@ -30,30 +30,38 @@
         </section>
 
         <div class="grid">
+            <!-- Left column: Trade History (top), Flagged Markets (bottom) -->
+            <section class="card">
+                <h2>Trade History</h2>
+                <div id="trades-table"></div>
+            </section>
+
+            <!-- Right column: PnL Chart (top) -->
             <section class="card chart-card">
                 <h2>PnL History</h2>
                 <canvas id="pnl-chart"></canvas>
             </section>
 
-            <section class="card card-full">
-                <h2>Trade History</h2>
-                <div id="trades-table"></div>
-            </section>
-
-            <section class="card card-full">
+            <section class="card">
                 <h2>Flagged Markets</h2>
                 <div id="markets-list"></div>
             </section>
 
-            <section class="card">
-                <h2>Live Feed</h2>
-                <div id="log-feed" class="log-feed" hx-get="/api/logs" hx-trigger="load, every 5s" hx-swap="innerHTML">
+            <!-- Right column: Tabbed Live Feed / Lessons (bottom) -->
+            <section class="card tabbed-card">
+                <div class="tab-bar">
+                    <button class="active" onclick="switchTab(this, 'tab-logs')">Live Feed</button>
+                    <button onclick="switchTab(this, 'tab-lessons')">Lessons</button>
                 </div>
-            </section>
-
-            <section class="card">
-                <h2>Lessons</h2>
-                <div id="lessons-list" hx-get="/api/lessons" hx-trigger="load, every 30s" hx-swap="innerHTML">
+                <div class="tab-content">
+                    <div id="tab-logs" class="tab-panel active">
+                        <div id="log-feed" class="log-feed" hx-get="/api/logs" hx-trigger="load, every 5s" hx-swap="innerHTML">
+                        </div>
+                    </div>
+                    <div id="tab-lessons" class="tab-panel">
+                        <div id="lessons-list" hx-get="/api/lessons" hx-trigger="load, every 30s" hx-swap="innerHTML">
+                        </div>
+                    </div>
                 </div>
             </section>
         </div>
@@ -90,6 +98,15 @@
         setTimeout(() => el.remove(), 3000);
     }
 
+    /* ── Tab switching ── */
+    function switchTab(btn, panelId) {
+        const card = btn.closest('.tabbed-card');
+        card.querySelectorAll('.tab-bar button').forEach(b => b.classList.remove('active'));
+        card.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(panelId).classList.add('active');
+    }
+
     /* ── PnL Chart ── */
     let pnlChart = null;
     async function refreshChart() {
@@ -100,8 +117,7 @@
 
         if (!pnlChart) {
             const ctx = document.getElementById('pnl-chart').getContext('2d');
-
-            const gradient = ctx.createLinearGradient(0, 0, 0, 220);
+            const gradient = ctx.createLinearGradient(0, 0, 0, 180);
             gradient.addColorStop(0, 'rgba(0, 230, 138, 0.12)');
             gradient.addColorStop(0.6, 'rgba(0, 230, 138, 0.02)');
             gradient.addColorStop(1, 'rgba(0, 230, 138, 0)');
@@ -114,12 +130,12 @@
                         label: 'Cumulative PnL ($)',
                         data: values,
                         borderColor: '#00E68A',
-                        borderWidth: 2,
+                        borderWidth: 1.5,
                         backgroundColor: gradient,
                         fill: true,
                         tension: 0.35,
                         pointRadius: 0,
-                        pointHoverRadius: 5,
+                        pointHoverRadius: 4,
                         pointHoverBackgroundColor: '#00E68A',
                         pointHoverBorderColor: '#0B0E14',
                         pointHoverBorderWidth: 2,
@@ -135,12 +151,12 @@
                             backgroundColor: '#131820',
                             borderColor: '#1C2333',
                             borderWidth: 1,
-                            titleFont: { family: 'Bricolage Grotesque', size: 11, weight: '600' },
-                            bodyFont: { family: 'JetBrains Mono', size: 12, weight: '500' },
+                            titleFont: { family: 'Bricolage Grotesque', size: 10, weight: '600' },
+                            bodyFont: { family: 'JetBrains Mono', size: 11, weight: '500' },
                             titleColor: '#566175',
                             bodyColor: '#00E68A',
-                            padding: { x: 12, y: 8 },
-                            cornerRadius: 6,
+                            padding: { x: 8, y: 6 },
+                            cornerRadius: 4,
                             displayColors: false,
                             callbacks: {
                                 label: ctx => `$${ctx.parsed.y.toFixed(2)}`
@@ -151,24 +167,24 @@
                         x: {
                             grid: { color: 'rgba(28, 35, 51, 0.5)', drawTicks: false },
                             ticks: {
-                                font: { family: 'JetBrains Mono', size: 10 },
+                                font: { family: 'JetBrains Mono', size: 9 },
                                 color: '#2E3848',
                                 maxRotation: 0,
-                                maxTicksLimit: 8,
+                                maxTicksLimit: 6,
                             },
                             border: { display: false },
                         },
                         y: {
                             grid: { color: 'rgba(28, 35, 51, 0.5)', drawTicks: false },
                             ticks: {
-                                font: { family: 'JetBrains Mono', size: 10 },
+                                font: { family: 'JetBrains Mono', size: 9 },
                                 color: '#2E3848',
                                 callback: v => '$' + v,
                             },
                             border: { display: false },
                         }
                     },
-                    layout: { padding: { top: 4 } }
+                    layout: { padding: { top: 2 } }
                 }
             });
         } else {
@@ -196,11 +212,11 @@
     let tradesPage = 1;
     async function loadTrades(page) {
         tradesPage = page || tradesPage;
-        const resp = await fetch(`/api/trades?page=${tradesPage}&per_page=10`);
+        const resp = await fetch(`/api/trades?page=${tradesPage}&per_page=8`);
         const data = await resp.json();
         const el = document.getElementById('trades-table');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
-        let html = '<table><colgroup><col style="width:auto"><col style="width:60px"><col style="width:70px"><col style="width:80px"><col style="width:70px"></colgroup><tr><th>Market</th><th>Side</th><th>Amount</th><th>Status</th><th>PnL</th></tr>';
+        let html = '<table><colgroup><col style="width:auto"><col style="width:50px"><col style="width:55px"><col style="width:70px"><col style="width:60px"></colgroup><tr><th>Market</th><th>Side</th><th>Amt</th><th>Status</th><th>PnL</th></tr>';
         data.items.forEach(t => {
             const name = esc(t.question || t.market_id || '');
             const pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
@@ -227,11 +243,11 @@
     let marketsPage = 1;
     async function loadMarkets(page) {
         marketsPage = page || marketsPage;
-        const resp = await fetch(`/api/markets?page=${marketsPage}&per_page=10`);
+        const resp = await fetch(`/api/markets?page=${marketsPage}&per_page=8`);
         const data = await resp.json();
         const el = document.getElementById('markets-list');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No flagged markets.</p>'; return; }
-        let html = '<table><colgroup><col style="width:auto"><col style="width:50px"><col style="width:130px"><col style="width:60px"></colgroup><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th></tr>';
+        let html = '<table><colgroup><col style="width:auto"><col style="width:45px"><col style="width:110px"><col style="width:50px"></colgroup><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th></tr>';
         data.items.forEach(m => {
             const price = m.yes_price.toFixed(2);
             const priceColor = m.yes_price > 0.7 ? 'var(--neon)' : m.yes_price < 0.3 ? 'var(--red)' : 'var(--text-secondary)';
@@ -239,12 +255,11 @@
             if (m.trade_status) {
                 resultHtml = `<span style="color:var(--neon);font-weight:600">${esc(m.recommended_side)} $${m.trade_amount.toFixed(0)}</span>`;
             } else if (m.approved === 0 && m.rejection_reason) {
-                const reason = m.rejection_reason;
-                resultHtml = `<span style="color:var(--red);font-size:0.65rem">${esc(reason)}</span>`;
+                resultHtml = `<span style="color:var(--red);font-size:0.6rem">${esc(m.rejection_reason)}</span>`;
             } else if (m.recommended_side) {
                 resultHtml = `<span style="color:var(--amber)">${esc(m.recommended_side)}</span>`;
             } else {
-                resultHtml = '<span style="color:var(--text-ghost);font-size:0.65rem">Not evaluated</span>';
+                resultHtml = '<span style="color:var(--text-ghost);font-size:0.6rem">Not evaluated</span>';
             }
             const edgeHtml = m.edge != null
                 ? `<span style="color:var(--blue);font-weight:500">${(m.edge * 100).toFixed(1)}%</span>`
@@ -285,11 +300,9 @@
         const pct = total > 0 ? (approved / total) : 0;
         const circumference = 2 * Math.PI * 42;
         const offset = circumference * (1 - pct);
-
         const accDisplay = accuracy && accuracy.evaluated > 0
             ? `${(accuracy.accuracy * 100).toFixed(0)}%`
             : null;
-
         return `
             <div class="pred-ring-container">
                 <div class="pred-ring">
@@ -305,31 +318,11 @@
                     </div>
                 </div>
                 <div class="pred-stats">
-                    <div class="pred-stat-row">
-                        <div class="pred-stat-dot approved"></div>
-                        <span class="pred-stat-label">Approved</span>
-                        <span class="pred-stat-value">${approved}</span>
-                    </div>
-                    <div class="pred-stat-row">
-                        <div class="pred-stat-dot blocked"></div>
-                        <span class="pred-stat-label">Blocked</span>
-                        <span class="pred-stat-value">${blocked}</span>
-                    </div>
-                    <div class="pred-stat-row">
-                        <div class="pred-stat-dot edge"></div>
-                        <span class="pred-stat-label">Avg Edge</span>
-                        <span class="pred-stat-value">${(avgEdge * 100).toFixed(1)}%</span>
-                    </div>
-                    <div class="pred-stat-row">
-                        <div class="pred-stat-dot conf"></div>
-                        <span class="pred-stat-label">Avg Conf</span>
-                        <span class="pred-stat-value">${(avgConf * 100).toFixed(0)}%</span>
-                    </div>
-                    ${accDisplay ? `<div class="pred-stat-row">
-                        <div class="pred-stat-dot approved"></div>
-                        <span class="pred-stat-label">Accuracy</span>
-                        <span class="pred-stat-value" style="color:var(--neon)">${accDisplay}</span>
-                    </div>` : ''}
+                    <div class="pred-stat-row"><div class="pred-stat-dot approved"></div><span class="pred-stat-label">Approved</span><span class="pred-stat-value">${approved}</span></div>
+                    <div class="pred-stat-row"><div class="pred-stat-dot blocked"></div><span class="pred-stat-label">Blocked</span><span class="pred-stat-value">${blocked}</span></div>
+                    <div class="pred-stat-row"><div class="pred-stat-dot edge"></div><span class="pred-stat-label">Avg Edge</span><span class="pred-stat-value">${(avgEdge * 100).toFixed(1)}%</span></div>
+                    <div class="pred-stat-row"><div class="pred-stat-dot conf"></div><span class="pred-stat-label">Avg Conf</span><span class="pred-stat-value">${(avgConf * 100).toFixed(0)}%</span></div>
+                    ${accDisplay ? `<div class="pred-stat-row"><div class="pred-stat-dot approved"></div><span class="pred-stat-label">Accuracy</span><span class="pred-stat-value" style="color:var(--neon)">${accDisplay}</span></div>` : ''}
                 </div>
             </div>`;
     }
@@ -350,13 +343,13 @@
             const d = JSON.parse(evt.detail.xhr.responseText);
             const mode = d.dry_run ? 'DRY RUN' : 'LIVE';
             const cls = d.dry_run ? 'badge-dry' : 'badge-live';
-            const loop = d.loop_active ? '<span style="color:var(--blue);margin-left:0.4rem;font-weight:600;font-size:0.68rem">LOOP</span>' : '';
-            const scan = d.scanning ? '<span style="color:var(--amber);margin-left:0.4rem;font-weight:600;font-size:0.68rem">SCANNING</span>' : '';
+            const loop = d.loop_active ? '<span style="color:var(--blue);margin-left:0.3rem;font-weight:600;font-size:0.6rem">LOOP</span>' : '';
+            const scan = d.scanning ? '<span style="color:var(--amber);margin-left:0.3rem;font-weight:600;font-size:0.6rem">SCANNING</span>' : '';
             evt.detail.serverResponse =
                 `<span class="badge ${cls}">${mode}</span>` +
-                `<span style="color:var(--text-ghost);font-size:0.72rem">#${d.cycle_count}</span>` +
+                `<span style="color:var(--text-ghost);font-size:0.65rem">#${d.cycle_count}</span>` +
                 loop + scan +
-                (d.last_error ? '<span style="color:var(--red);margin-left:0.4rem;font-weight:600;font-size:0.68rem">ERR</span>' : '');
+                (d.last_error ? '<span style="color:var(--red);margin-left:0.3rem;font-weight:600;font-size:0.6rem">ERR</span>' : '');
         }
 
         /* Stats row */
@@ -366,10 +359,10 @@
             const pnlSign = s.total_pnl >= 0 ? '+' : '';
             const approvalRate = s.total_predictions > 0
                 ? ((s.approved / s.total_predictions) * 100).toFixed(0) + '%'
-                : '—';
+                : '\u2014';
             const accStr = s.prediction_accuracy && s.prediction_accuracy.evaluated > 0
                 ? (s.prediction_accuracy.accuracy * 100).toFixed(0) + '%'
-                : '—';
+                : '\u2014';
             evt.detail.serverResponse = `
                 <div class="stat-card">
                     <div class="stat-value">${s.total_trades}</div>
@@ -377,7 +370,7 @@
                 </div>
                 <div class="stat-card">
                     <div class="stat-value">${s.dry_run_pending || 0}</div>
-                    <div class="stat-label">Pending Dry-Run</div>
+                    <div class="stat-label">Pending</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-value">${(s.win_rate*100).toFixed(0)}%</div>
@@ -385,15 +378,15 @@
                 </div>
                 <div class="stat-card">
                     <div class="stat-value" style="color:${pnlColor}">${pnlSign}$${Math.abs(s.total_pnl).toFixed(2)}</div>
-                    <div class="stat-label">Hypothetical PnL</div>
+                    <div class="stat-label">PnL</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-value">${s.total_predictions || 0}</div>
-                    <div class="stat-label">Predictions (${approvalRate} approved)</div>
+                    <div class="stat-label">Predictions (${approvalRate})</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value" style="color:${accStr !== '—' ? 'var(--neon)' : 'var(--text-ghost)'}">${accStr}</div>
-                    <div class="stat-label">Accuracy${s.prediction_accuracy && s.prediction_accuracy.evaluated > 0 ? ' (' + s.prediction_accuracy.correct + '/' + s.prediction_accuracy.evaluated + ')' : ''}</div>
+                    <div class="stat-value" style="color:${accStr !== '\u2014' ? 'var(--neon)' : 'var(--text-ghost)'}">${accStr}</div>
+                    <div class="stat-label">Accuracy</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-value">${s.snapshot_count}</div>
@@ -401,9 +394,7 @@
                 </div>`;
         }
 
-        /* Trades and Markets are now rendered by their own fetch loops — skip htmx */
-
-        /* Log feed — with colored levels */
+        /* Log feed */
         if (evt.detail.target.id === 'log-feed') {
             const logs = JSON.parse(evt.detail.xhr.responseText);
             if (logs.length === 0) {
