@@ -71,7 +71,7 @@ A `ResearchSource` adapter that fetches today's current events from Wikipedia.
 
 ### All three sources:
 - Follow the existing `ResearchSource` ABC
-- Added to the `ResearchPipeline` sources list in `pipeline.py`
+- Added to the `ResearchPipeline` sources list in `src/research/pipeline.py`
 - Run in parallel with existing sources via `asyncio.gather`
 - Gracefully disabled on error (return empty list)
 
@@ -184,9 +184,9 @@ Score: -1.0 (strongly suggests NO) to 1.0 (strongly suggests YES). Label: positi
 Return ONLY valid JSON.
 ```
 
-**Key change:** `analyze_batch()` now accepts an optional `market_question: str` parameter so Haiku can contextualize sentiment relative to the market. When `market_question` is None, falls back to pure VADER (no LLM calls). Return type remains `list[dict]` with the same `{"label": str, "score": float}` shape.
+**Key change:** `analyze_batch()` becomes `async def analyze_batch()` and accepts an optional `market_question: str` parameter so Haiku can contextualize sentiment relative to the market. When `market_question` is None, falls back to pure VADER (no LLM calls). Return type remains `list[dict]` with the same `{"label": str, "score": float}` shape. Constructor gains `anthropic_client` and `settings` parameters for Haiku access (same pattern as `PostmortemAnalyzer`).
 
-**Caller change:** `ResearchPipeline.search_and_analyze(query)` passes `query` as `market_question` to `analyze_batch(texts, market_question=query)`. Since `query` is already `market.question` (set in `pipeline.py`), no signature change to `search_and_analyze` is needed.
+**Caller change:** `ResearchPipeline.search_and_analyze(query)` in `src/research/pipeline.py` changes its call from `self.sentiment.analyze_batch(texts)` to `await self.sentiment.analyze_batch(texts, market_question=query)`. Since `query` is already `market.question` (set in `src/pipeline.py`), no signature change to `search_and_analyze` is needed.
 
 **RoBERTa removal:** The `use_transformer` code path and `transformers` dependency are removed entirely. Remove `transformers` and `torch` from `requirements.txt` if no other module uses them.
 
@@ -287,13 +287,14 @@ Add the three new source weight fields to the existing `weight_range` `@field_va
 - `src/research/coingecko.py`
 - `src/research/fred.py`
 
-**Modified files (6):**
-- `src/research/sentiment.py` — Haiku for ambiguous, VADER fallback
+**Modified files (7):**
+- `src/research/sentiment.py` — Haiku for ambiguous, VADER fallback, async analyze_batch
+- `src/research/pipeline.py` — register 3 new text sources, pass market_question to analyze_batch
 - `src/predictor/features.py` — structured_data param, 13 new features
 - `src/predictor/xgb_model.py` — FEATURE_ORDER 20→33
 - `src/predictor/trainer.py` — new feature defaults
-- `src/pipeline.py` — wire up new sources + structured pipeline
-- `src/config.py` — new settings
+- `src/pipeline.py` — wire up structured pipeline, parallel track execution
+- `src/config.py` — new settings (sentiment LLM, FRED key, source weights)
 
 ## Out of Scope
 
