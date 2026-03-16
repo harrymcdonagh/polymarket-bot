@@ -69,6 +69,8 @@ def main():
 
 async def _loop(pipeline, dry_run: bool, interval: int):
     logger = logging.getLogger("polymarket-bot")
+    if pipeline.notifier.is_enabled:
+        await pipeline.notifier.send(pipeline.notifier.format_startup())
     while True:
         try:
             await pipeline.run_cycle(dry_run=dry_run)

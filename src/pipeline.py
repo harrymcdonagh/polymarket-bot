@@ -17,6 +17,7 @@ from src.risk.risk_manager import RiskManager
 from src.risk.executor import TradeExecutor
 from src.postmortem.postmortem import PostmortemAnalyzer
 from src.models import ResearchReport, SentimentResult, ScannedMarket
+from src.notifications.telegram import TelegramNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,10 @@ class Pipeline:
         self._settlement_tasks: list[asyncio.Task] = []
         self.last_flagged_markets: list[ScannedMarket] = []
         self.dry_run_trades: list[dict] = []
+        self.notifier = TelegramNotifier(
+            bot_token=self.settings.TELEGRAM_BOT_TOKEN,
+            chat_id=self.settings.TELEGRAM_CHAT_ID,
+        )
 
     def _set_activity(self, stage: str, detail: str = ""):
         if self._status_callback:
@@ -252,6 +257,7 @@ class Pipeline:
                         price=market.yes_price,
                         order_id=None,
                         status="dry_run",
+                        predicted_prob=prediction.predicted_probability,
                     )
                     self.dry_run_trades.append({
                         "market_id": market.condition_id,
@@ -263,9 +269,22 @@ class Pipeline:
                         "pnl": None,
                         "executed_at": datetime.now(timezone.utc).isoformat(),
                     })
+                    if self.notifier.is_enabled:
+                        msg = self.notifier.format_trade_alert(
+                            question=market.question,
+                            side=prediction.recommended_side,
+                            amount=decision.bet_size_usd,
+                            price=market.yes_price,
+                            edge=prediction.edge,
+                        )
+                        await self.notifier.send(msg)
 
             except Exception as e:
                 logger.error(f"Pipeline error for {market.question[:50]}: {e}")
+                if self.notifier.is_enabled:
+                    await self.notifier.send(
+                        self.notifier.format_error_alert(f"{market.question[:50]}: {e}")
+                    )
                 continue
 
         self._set_activity("postmortem", "Analyzing settled trades")
