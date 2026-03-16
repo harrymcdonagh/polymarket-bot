@@ -212,7 +212,7 @@
     let tradesPage = 1;
     async function loadTrades(page) {
         tradesPage = page || tradesPage;
-        const resp = await fetch(`/api/trades?page=${tradesPage}&per_page=8`);
+        const resp = await fetch(`/api/trades?page=${tradesPage}&per_page=12`);
         const data = await resp.json();
         const el = document.getElementById('trades-table');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
@@ -243,7 +243,7 @@
     let marketsPage = 1;
     async function loadMarkets(page) {
         marketsPage = page || marketsPage;
-        const resp = await fetch(`/api/markets?page=${marketsPage}&per_page=8`);
+        const resp = await fetch(`/api/markets?page=${marketsPage}&per_page=12`);
         const data = await resp.json();
         const el = document.getElementById('markets-list');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No flagged markets.</p>'; return; }
