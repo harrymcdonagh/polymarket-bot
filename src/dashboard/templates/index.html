@@ -200,7 +200,7 @@
         const data = await resp.json();
         const el = document.getElementById('trades-table');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
-        let html = '<table><tr><th>Market</th><th>Side</th><th>Amount</th><th>Status</th><th>PnL</th></tr>';
+        let html = '<table><colgroup><col style="width:auto"><col style="width:60px"><col style="width:70px"><col style="width:80px"><col style="width:70px"></colgroup><tr><th>Market</th><th>Side</th><th>Amount</th><th>Status</th><th>PnL</th></tr>';
         data.items.forEach(t => {
             const name = esc(t.question || t.market_id || '');
             const pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
@@ -231,7 +231,7 @@
         const data = await resp.json();
         const el = document.getElementById('markets-list');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No flagged markets.</p>'; return; }
-        let html = '<table><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th></tr>';
+        let html = '<table><colgroup><col style="width:auto"><col style="width:60px"><col style="width:90px"><col style="width:60px"></colgroup><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th></tr>';
         data.items.forEach(m => {
             const price = m.yes_price.toFixed(2);
             const priceColor = m.yes_price > 0.7 ? 'var(--neon)' : m.yes_price < 0.3 ? 'var(--red)' : 'var(--text-secondary)';
