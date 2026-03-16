@@ -15,7 +15,7 @@ class MetaculusSource(ResearchSource):
         self.default_weight = weight
 
     def is_available(self) -> bool:
-        return True
+        return False  # Metaculus API requires authentication since early 2026
 
     async def search(self, query: str) -> list[ResearchResult]:
         try:

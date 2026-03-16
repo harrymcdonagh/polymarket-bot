@@ -102,10 +102,14 @@ class Calibrator:
         try:
             response = self.client.messages.create(
                 model=self.settings.CALIBRATION_MODEL,
-                max_tokens=800,
+                max_tokens=1500,
                 messages=[{"role": "user", "content": prompt}],
             )
             text = response.content[0].text.strip()
+            # Strip markdown code fences
+            if text.startswith("```"):
+                text = re.sub(r'^```(?:json)?\s*', '', text)
+                text = re.sub(r'\s*```\s*$', '', text)
             # Parse JSON — try direct, then regex extraction
             try:
                 data = json.loads(text)

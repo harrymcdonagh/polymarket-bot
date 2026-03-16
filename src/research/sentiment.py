@@ -101,14 +101,22 @@ class SentimentAnalyzer:
                 f"Return ONLY valid JSON."
             )
 
+            # Scale max_tokens with batch size (~30 tokens per result)
+            max_tok = max(300, len(texts) * 35 + 50)
+
             # Run sync Anthropic client in thread to avoid blocking event loop
             response = await asyncio.to_thread(
                 client.messages.create,
                 model=self.sentiment_model,
-                max_tokens=500,
+                max_tokens=max_tok,
                 messages=[{"role": "user", "content": prompt}],
             )
             text = response.content[0].text.strip()
+
+            # Strip markdown code fences
+            if text.startswith("```"):
+                text = re.sub(r'^```(?:json)?\s*', '', text)
+                text = re.sub(r'\s*```\s*$', '', text)
 
             try:
                 results = json.loads(text)
