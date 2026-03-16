@@ -12,6 +12,8 @@ class Database:
         if not hasattr(self._local, 'connection') or self._local.connection is None:
             self._local.connection = sqlite3.connect(self.path)
             self._local.connection.row_factory = sqlite3.Row
+            self._local.connection.execute("PRAGMA journal_mode=WAL")
+            self._local.connection.execute("PRAGMA busy_timeout=30000")
         return self._local.connection
 
     def close(self):
@@ -81,13 +83,30 @@ class Database:
             );
         """)
         conn.commit()
+        self.migrate()
+
+    def migrate(self):
+        """Add columns that don't exist yet. Safe to run repeatedly."""
+        conn = self._conn()
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(trades)").fetchall()}
+        migrations = [
+            ("resolved_outcome", "TEXT"),
+            ("hypothetical_pnl", "REAL"),
+            ("resolved_at", "TEXT"),
+            ("predicted_prob", "REAL"),
+        ]
+        for col_name, col_type in migrations:
+            if col_name not in existing:
+                conn.execute(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}")
+        conn.commit()
 
     def save_trade(self, market_id: str, side: str, amount: float, price: float,
-                   order_id: str | None = None, status: str = "pending"):
+                   order_id: str | None = None, status: str = "pending",
+                   predicted_prob: float | None = None):
         conn = self._conn()
         conn.execute(
-            "INSERT INTO trades (market_id, side, amount, price, order_id, status) VALUES (?, ?, ?, ?, ?, ?)",
-            (market_id, side, amount, price, order_id, status),
+            "INSERT INTO trades (market_id, side, amount, price, order_id, status, predicted_prob) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (market_id, side, amount, price, order_id, status, predicted_prob),
         )
         conn.commit()
 
@@ -224,4 +243,27 @@ class Database:
     def get_snapshot_count(self) -> int:
         conn = self._conn()
         row = conn.execute("SELECT COUNT(*) as n FROM market_snapshots").fetchone()
+        return row["n"]
+
+    def get_unresolved_dry_run_trades(self) -> list[dict]:
+        conn = self._conn()
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE status = 'dry_run' AND resolved_outcome IS NULL"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def settle_dry_run_trade(self, trade_id: int, resolved_outcome: str, hypothetical_pnl: float):
+        conn = self._conn()
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "UPDATE trades SET status = 'dry_run_settled', resolved_outcome = ?, hypothetical_pnl = ?, resolved_at = ? WHERE id = ?",
+            (resolved_outcome, hypothetical_pnl, now, trade_id),
+        )
+        conn.commit()
+
+    def get_dry_run_trade_count(self) -> int:
+        conn = self._conn()
+        row = conn.execute(
+            "SELECT COUNT(*) as n FROM trades WHERE status IN ('dry_run', 'dry_run_settled')"
+        ).fetchone()
         return row["n"]
