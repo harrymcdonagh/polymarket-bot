@@ -105,7 +105,7 @@ class ResearchPipeline:
             }
 
         texts = [r.text for r in results]
-        sentiments = self.sentiment.analyze_batch(texts)
+        sentiments = await self.sentiment.analyze_batch_async(texts, market_question=query)
 
         # Weighted aggregation
         total_weight = 0

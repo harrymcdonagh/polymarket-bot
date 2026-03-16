@@ -108,10 +108,10 @@ async def test_pipeline_weighted_sentiment():
     ])
 
     mock_analyzer = MagicMock()
-    mock_analyzer.analyze_batch.return_value = [
+    mock_analyzer.analyze_batch_async = AsyncMock(return_value=[
         {"label": "positive", "score": 0.9},
         {"label": "negative", "score": 0.8},
-    ]
+    ])
 
     pipeline = ResearchPipeline(sources=[source], timeout=10, sentiment_analyzer=mock_analyzer)
     sentiment = await pipeline.search_and_analyze("test")

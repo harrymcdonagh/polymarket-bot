@@ -12,6 +12,13 @@ from src.research.twitter import TwitterSource
 from src.research.reddit import RedditSource
 from src.research.rss import RSSSource
 from src.research.google_trends import GoogleTrendsSource
+from src.research.metaculus import MetaculusSource
+from src.research.predictit import PredictItSource
+from src.research.wikipedia import WikipediaSource
+from src.research.structured_pipeline import StructuredDataPipeline
+from src.research.clob import CLOBSource
+from src.research.coingecko import CoinGeckoSource
+from src.research.fred import FREDSource
 from src.research.sentiment import SentimentAnalyzer
 from src.predictor.features import extract_features
 from src.predictor.xgb_model import PredictionModel
@@ -33,8 +40,9 @@ class Pipeline:
         self.db.init()
         self.scanner = MarketScanner(self.settings)
         self.sentiment = SentimentAnalyzer(
-            use_transformer=True,
-            ambiguity_threshold=self.settings.SENTIMENT_AMBIGUITY_THRESHOLD,
+            use_llm=self.settings.SENTIMENT_USE_LLM,
+            llm_threshold=self.settings.SENTIMENT_LLM_THRESHOLD,
+            sentiment_model=self.settings.SENTIMENT_MODEL,
         )
         self.xgb_model = PredictionModel()
         self._load_model()
@@ -61,9 +69,20 @@ class Pipeline:
                     weight=self.settings.SOURCE_WEIGHT_REDDIT,
                 ),
                 GoogleTrendsSource(weight=self.settings.SOURCE_WEIGHT_GOOGLE_TRENDS),
+                MetaculusSource(weight=self.settings.SOURCE_WEIGHT_METACULUS),
+                PredictItSource(weight=self.settings.SOURCE_WEIGHT_PREDICTIT),
+                WikipediaSource(weight=self.settings.SOURCE_WEIGHT_WIKIPEDIA),
             ],
             timeout=self.settings.RESEARCH_TIMEOUT,
             sentiment_analyzer=self.sentiment,
+        )
+        self.structured_pipeline = StructuredDataPipeline(
+            sources=[
+                CLOBSource(),
+                CoinGeckoSource(),
+                FREDSource(api_key=self.settings.FRED_API_KEY),
+            ],
+            timeout=self.settings.RESEARCH_TIMEOUT,
         )
         self._settlement_tasks: list[asyncio.Task] = []
         self.last_flagged_markets: list[ScannedMarket] = []
@@ -139,7 +158,7 @@ class Pipeline:
             researched_at=datetime.now(timezone.utc),
         )
 
-    async def predict(self, market: ScannedMarket, research: ResearchReport):
+    async def predict(self, market: ScannedMarket, research: ResearchReport, structured_data: dict | None = None):
         logger.info(f"=== STEP 3: Predicting '{market.question[:60]}' ===")
 
         if research.sentiments:
@@ -171,7 +190,7 @@ class Pipeline:
             "narrative_alignment": research.narrative_vs_odds_alignment,
         }
 
-        features = extract_features(market, sentiment_agg)
+        features = extract_features(market, sentiment_agg, structured_data=structured_data)
         xgb_prob = self.xgb_model.predict(features)
 
         # Feed lessons into calibrator for better predictions
@@ -254,10 +273,15 @@ class Pipeline:
             logger.info(f"Skipped {skipped} already-traded markets")
         targets = candidates[:20] if flagged else candidates[:10]
 
-        # Parallelize research for all targets (the slow part)
+        # Parallelize BOTH tracks — research and structured data run concurrently
         self._set_activity("researching", f"Researching {len(targets)} markets in parallel")
         research_tasks = [self.research(m) for m in targets]
-        research_results = await asyncio.gather(*research_tasks, return_exceptions=True)
+        structured_tasks = [self.structured_pipeline.fetch(m) for m in targets]
+        all_results = await asyncio.gather(
+            asyncio.gather(*research_tasks, return_exceptions=True),
+            asyncio.gather(*structured_tasks, return_exceptions=True),
+        )
+        research_results, structured_results = all_results
 
         for i, market in enumerate(targets):
             try:
@@ -267,8 +291,14 @@ class Pipeline:
                     logger.error(f"Research failed for {market.question[:50]}: {research}")
                     continue
 
+                # Get structured data for this market
+                struct_data = structured_results[i]
+                if isinstance(struct_data, Exception):
+                    logger.warning(f"Structured data failed for {market.question[:50]}: {struct_data}")
+                    struct_data = None
+
                 self._set_activity("predicting", f"[{i+1}/{len(targets)}] {market.question}")
-                prediction = await self.predict(market, research)
+                prediction = await self.predict(market, research, structured_data=struct_data)
                 self._set_activity("evaluating", f"[{i+1}/{len(targets)}] {market.question}")
                 decision = self.evaluate_risk(prediction)
 
