@@ -104,9 +104,9 @@
             const ctx = document.getElementById('pnl-chart').getContext('2d');
 
             const gradient = ctx.createLinearGradient(0, 0, 0, 220);
-            gradient.addColorStop(0, 'rgba(0, 255, 136, 0.15)');
-            gradient.addColorStop(0.5, 'rgba(0, 255, 136, 0.03)');
-            gradient.addColorStop(1, 'rgba(0, 255, 136, 0)');
+            gradient.addColorStop(0, 'rgba(0, 230, 138, 0.12)');
+            gradient.addColorStop(0.6, 'rgba(0, 230, 138, 0.02)');
+            gradient.addColorStop(1, 'rgba(0, 230, 138, 0)');
 
             pnlChart = new Chart(ctx, {
                 type: 'line',
@@ -115,15 +115,15 @@
                     datasets: [{
                         label: 'Cumulative PnL ($)',
                         data: values,
-                        borderColor: '#00ff88',
-                        borderWidth: 1.5,
+                        borderColor: '#00E68A',
+                        borderWidth: 2,
                         backgroundColor: gradient,
                         fill: true,
-                        tension: 0.3,
+                        tension: 0.35,
                         pointRadius: 0,
-                        pointHoverRadius: 4,
-                        pointHoverBackgroundColor: '#00ff88',
-                        pointHoverBorderColor: '#00ff88',
+                        pointHoverRadius: 5,
+                        pointHoverBackgroundColor: '#00E68A',
+                        pointHoverBorderColor: '#0B0E14',
                         pointHoverBorderWidth: 2,
                     }]
                 },
@@ -134,15 +134,15 @@
                     plugins: {
                         legend: { display: false },
                         tooltip: {
-                            backgroundColor: '#0f1218',
-                            borderColor: '#1e2430',
+                            backgroundColor: '#131820',
+                            borderColor: '#1C2333',
                             borderWidth: 1,
-                            titleFont: { family: 'Outfit', size: 11, weight: '600' },
-                            bodyFont: { family: 'JetBrains Mono', size: 12 },
-                            titleColor: '#64748b',
-                            bodyColor: '#00ff88',
-                            padding: 10,
-                            cornerRadius: 2,
+                            titleFont: { family: 'Bricolage Grotesque', size: 11, weight: '600' },
+                            bodyFont: { family: 'JetBrains Mono', size: 12, weight: '500' },
+                            titleColor: '#566175',
+                            bodyColor: '#00E68A',
+                            padding: { x: 12, y: 8 },
+                            cornerRadius: 6,
                             displayColors: false,
                             callbacks: {
                                 label: ctx => `$${ctx.parsed.y.toFixed(2)}`
@@ -151,20 +151,20 @@
                     },
                     scales: {
                         x: {
-                            grid: { color: 'rgba(30, 36, 48, 0.5)', drawTicks: false },
+                            grid: { color: 'rgba(28, 35, 51, 0.5)', drawTicks: false },
                             ticks: {
                                 font: { family: 'JetBrains Mono', size: 10 },
-                                color: '#334155',
+                                color: '#2E3848',
                                 maxRotation: 0,
                                 maxTicksLimit: 8,
                             },
                             border: { display: false },
                         },
                         y: {
-                            grid: { color: 'rgba(30, 36, 48, 0.5)', drawTicks: false },
+                            grid: { color: 'rgba(28, 35, 51, 0.5)', drawTicks: false },
                             ticks: {
                                 font: { family: 'JetBrains Mono', size: 10 },
-                                color: '#334155',
+                                color: '#2E3848',
                                 callback: v => '$' + v,
                             },
                             border: { display: false },
@@ -198,6 +198,69 @@
         }
     });
 
+    /* ── Prediction Ring Helper ── */
+    function renderPredRing(approved, blocked, avgEdge, avgConf, accuracy) {
+        const total = approved + blocked;
+        const pct = total > 0 ? (approved / total) : 0;
+        const circumference = 2 * Math.PI * 42;
+        const offset = circumference * (1 - pct);
+
+        const accDisplay = accuracy && accuracy.evaluated > 0
+            ? `${(accuracy.accuracy * 100).toFixed(0)}%`
+            : null;
+
+        return `
+            <div class="pred-ring-container">
+                <div class="pred-ring">
+                    <svg viewBox="0 0 100 100">
+                        <circle class="pred-ring-bg" cx="50" cy="50" r="42"/>
+                        <circle class="pred-ring-fill" cx="50" cy="50" r="42"
+                                stroke-dasharray="${circumference}"
+                                stroke-dashoffset="${offset}"/>
+                    </svg>
+                    <div class="pred-ring-center">
+                        <span class="pred-ring-value">${total}</span>
+                        <span class="pred-ring-label">predictions</span>
+                    </div>
+                </div>
+                <div class="pred-stats">
+                    <div class="pred-stat-row">
+                        <div class="pred-stat-dot approved"></div>
+                        <span class="pred-stat-label">Approved</span>
+                        <span class="pred-stat-value">${approved}</span>
+                    </div>
+                    <div class="pred-stat-row">
+                        <div class="pred-stat-dot blocked"></div>
+                        <span class="pred-stat-label">Blocked</span>
+                        <span class="pred-stat-value">${blocked}</span>
+                    </div>
+                    <div class="pred-stat-row">
+                        <div class="pred-stat-dot edge"></div>
+                        <span class="pred-stat-label">Avg Edge</span>
+                        <span class="pred-stat-value">${(avgEdge * 100).toFixed(1)}%</span>
+                    </div>
+                    <div class="pred-stat-row">
+                        <div class="pred-stat-dot conf"></div>
+                        <span class="pred-stat-label">Avg Conf</span>
+                        <span class="pred-stat-value">${(avgConf * 100).toFixed(0)}%</span>
+                    </div>
+                    ${accDisplay ? `<div class="pred-stat-row">
+                        <div class="pred-stat-dot approved"></div>
+                        <span class="pred-stat-label">Accuracy</span>
+                        <span class="pred-stat-value" style="color:var(--neon)">${accDisplay}</span>
+                    </div>` : ''}
+                </div>
+            </div>`;
+    }
+
+    /* ── Log Level Detection ── */
+    function logClass(line) {
+        if (line.includes('[ERROR]')) return 'log-line log-error';
+        if (line.includes('[WARNING]')) return 'log-line log-warning';
+        if (line.includes('[BLOCKED]')) return 'log-line log-blocked';
+        return 'log-line';
+    }
+
     /* ── htmx Response Formatting ── */
     htmx.on('htmx:beforeSwap', function(evt) {
 
@@ -206,22 +269,26 @@
             const d = JSON.parse(evt.detail.xhr.responseText);
             const mode = d.dry_run ? 'DRY RUN' : 'LIVE';
             const cls = d.dry_run ? 'badge-dry' : 'badge-live';
-            const loop = d.loop_active ? '<span style="color:var(--ice);margin-left:0.4rem">LOOP</span>' : '';
-            const scan = d.scanning ? '<span style="color:var(--amber);margin-left:0.4rem">SCANNING</span>' : '';
+            const loop = d.loop_active ? '<span style="color:var(--blue);margin-left:0.4rem;font-weight:600;font-size:0.68rem">LOOP</span>' : '';
+            const scan = d.scanning ? '<span style="color:var(--amber);margin-left:0.4rem;font-weight:600;font-size:0.68rem">SCANNING</span>' : '';
             evt.detail.serverResponse =
                 `<span class="badge ${cls}">${mode}</span>` +
-                `<span style="color:var(--text-ghost)">Cycle #${d.cycle_count}</span>` +
+                `<span style="color:var(--text-ghost);font-size:0.72rem">#${d.cycle_count}</span>` +
                 loop + scan +
-                (d.last_error ? '<span style="color:var(--coral);margin-left:0.4rem">ERR</span>' : '');
+                (d.last_error ? '<span style="color:var(--red);margin-left:0.4rem;font-weight:600;font-size:0.68rem">ERR</span>' : '');
         }
 
         /* Stats row */
         if (evt.detail.target.className === 'stats-row') {
             const s = JSON.parse(evt.detail.xhr.responseText);
-            const pnlColor = s.total_pnl >= 0 ? 'var(--neon)' : 'var(--coral)';
-            const todayColor = s.today_pnl >= 0 ? 'var(--neon)' : 'var(--coral)';
+            const pnlColor = s.total_pnl >= 0 ? 'var(--neon)' : 'var(--red)';
             const pnlSign = s.total_pnl >= 0 ? '+' : '';
-            const todaySign = s.today_pnl >= 0 ? '+' : '';
+            const approvalRate = s.total_predictions > 0
+                ? ((s.approved / s.total_predictions) * 100).toFixed(0) + '%'
+                : '—';
+            const accStr = s.prediction_accuracy && s.prediction_accuracy.evaluated > 0
+                ? (s.prediction_accuracy.accuracy * 100).toFixed(0) + '%'
+                : '—';
             evt.detail.serverResponse = `
                 <div class="stat-card">
                     <div class="stat-value">${s.total_trades}</div>
@@ -241,10 +308,10 @@
                 </div>
                 <div class="stat-card">
                     <div class="stat-value">${s.total_predictions || 0}</div>
-                    <div class="stat-label">Predictions (${s.approved || 0}/${s.blocked || 0})</div>
+                    <div class="stat-label">Predictions (${approvalRate} approved)</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${s.prediction_accuracy && s.prediction_accuracy.evaluated > 0 ? (s.prediction_accuracy.accuracy * 100).toFixed(0) + '%' : '—'}</div>
+                    <div class="stat-value" style="color:${accStr !== '—' ? 'var(--neon)' : 'var(--text-ghost)'}">${accStr}</div>
                     <div class="stat-label">Accuracy${s.prediction_accuracy && s.prediction_accuracy.evaluated > 0 ? ' (' + s.prediction_accuracy.correct + '/' + s.prediction_accuracy.evaluated + ')' : ''}</div>
                 </div>
                 <div class="stat-card">
@@ -261,17 +328,18 @@
             } else {
                 let html = '<table><tr><th>Market</th><th>Side</th><th>Amount</th><th>Status</th><th>PnL</th></tr>';
                 trades.forEach(t => {
-                    const name = esc((t.question || t.market_id || '').substring(0, 35));
+                    const name = esc((t.question || t.market_id || '').substring(0, 40));
                     const pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
                     const pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '—';
-                    const pnlStyle = pnl !== null ? (pnl >= 0 ? 'color:var(--neon)' : 'color:var(--coral)') : 'color:var(--text-ghost)';
-                    const sideStyle = t.side === 'YES' ? 'color:var(--neon)' : 'color:var(--coral)';
+                    const pnlStyle = pnl !== null ? (pnl >= 0 ? 'color:var(--neon)' : 'color:var(--red)') : 'color:var(--text-ghost)';
+                    const sideStyle = t.side === 'YES' ? 'color:var(--neon)' : 'color:var(--red)';
+                    const statusColor = t.status === 'dry_run' ? 'var(--amber)' : t.status === 'dry_run_settled' ? 'var(--blue)' : 'var(--text-dim)';
                     html += `<tr>
                         <td>${name}</td>
                         <td style="${sideStyle};font-weight:600">${esc(t.side)}</td>
                         <td>$${t.amount.toFixed(0)}</td>
-                        <td>${esc(t.status)}</td>
-                        <td style="${pnlStyle};font-weight:500">${pnlStr}</td>
+                        <td style="color:${statusColor}">${esc(t.status)}</td>
+                        <td style="${pnlStyle};font-weight:600">${pnlStr}</td>
                     </tr>`;
                 });
                 evt.detail.serverResponse = html + '</table>';
@@ -289,24 +357,26 @@
                     const rawFlags = m.flags || [];
                     const flags = esc(Array.isArray(rawFlags) ? rawFlags.join(', ') : rawFlags) || '—';
                     const price = m.yes_price.toFixed(2);
-                    const priceColor = m.yes_price > 0.7 ? 'var(--neon)' : m.yes_price < 0.3 ? 'var(--coral)' : 'var(--text-dim)';
+                    const priceColor = m.yes_price > 0.7 ? 'var(--neon)' : m.yes_price < 0.3 ? 'var(--red)' : 'var(--text-secondary)';
                     html += `<tr>
-                        <td>${esc((m.question||'').substring(0,40))}</td>
-                        <td style="color:${priceColor};font-weight:500">${price}</td>
-                        <td style="color:var(--amber);font-size:0.7rem">${flags}</td>
+                        <td>${esc((m.question||'').substring(0,45))}</td>
+                        <td style="color:${priceColor};font-weight:600">${price}</td>
+                        <td style="color:var(--amber);font-size:0.68rem">${flags}</td>
                     </tr>`;
                 });
                 evt.detail.serverResponse = html + '</table>';
             }
         }
 
-        /* Log feed */
+        /* Log feed — with colored levels */
         if (evt.detail.target.id === 'log-feed') {
             const logs = JSON.parse(evt.detail.xhr.responseText);
             if (logs.length === 0) {
                 evt.detail.serverResponse = '<p class="muted">No logs yet.</p>';
             } else {
-                evt.detail.serverResponse = logs.map(l => `<div class="log-line">${esc(l)}</div>`).join('');
+                evt.detail.serverResponse = logs.map(l =>
+                    `<div class="${logClass(l)}">${esc(l)}</div>`
+                ).join('');
             }
         }
 
