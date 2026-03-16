@@ -63,7 +63,8 @@ class Settings(BaseSettings):
     # FRED API
     FRED_API_KEY: str = ""
 
-    RESEARCH_TIMEOUT: int = 10
+    RESEARCH_TIMEOUT: int = 30
+    RESEARCH_CONCURRENCY: int = 5  # max markets researched in parallel
 
     # LLM model names
     CALIBRATION_MODEL: str = "claude-sonnet-4-6"

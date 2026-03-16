@@ -273,10 +273,20 @@ class Pipeline:
             logger.info(f"Skipped {skipped} already-traded markets")
         targets = candidates[:20] if flagged else candidates[:10]
 
-        # Parallelize BOTH tracks — research and structured data run concurrently
-        self._set_activity("researching", f"Researching {len(targets)} markets in parallel")
-        research_tasks = [self.research(m) for m in targets]
-        structured_tasks = [self.structured_pipeline.fetch(m) for m in targets]
+        # Parallelize BOTH tracks with concurrency limit to avoid overwhelming network
+        self._set_activity("researching", f"Researching {len(targets)} markets (concurrency={self.settings.RESEARCH_CONCURRENCY})")
+        sem = asyncio.Semaphore(self.settings.RESEARCH_CONCURRENCY)
+
+        async def _guarded_research(m):
+            async with sem:
+                return await self.research(m)
+
+        async def _guarded_structured(m):
+            async with sem:
+                return await self.structured_pipeline.fetch(m)
+
+        research_tasks = [_guarded_research(m) for m in targets]
+        structured_tasks = [_guarded_structured(m) for m in targets]
         all_results = await asyncio.gather(
             asyncio.gather(*research_tasks, return_exceptions=True),
             asyncio.gather(*structured_tasks, return_exceptions=True),
