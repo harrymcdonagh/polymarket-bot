@@ -18,7 +18,7 @@ fi
 
 echo "=== Cloning repository ==="
 if [ ! -d "$APP_DIR" ]; then
-    git clone https://github.com/YOUR_USERNAME/polymarket-bot.git "$APP_DIR"
+    git clone https://github.com/harrymcdonagh/polymarket-bot.git "$APP_DIR"
 else
     cd "$APP_DIR" && git pull
 fi
