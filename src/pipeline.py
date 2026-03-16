@@ -223,7 +223,14 @@ class Pipeline:
 
         flagged = [m for m in markets if m.flags]
         self.last_flagged_markets = flagged
-        targets = flagged[:10] if flagged else markets[:5]
+
+        # Skip markets we've already traded
+        traded_ids = self.db.get_traded_market_ids()
+        candidates = [m for m in (flagged if flagged else markets) if m.condition_id not in traded_ids]
+        if len(candidates) < len(flagged if flagged else markets):
+            skipped = (len(flagged) if flagged else len(markets)) - len(candidates)
+            logger.info(f"Skipped {skipped} already-traded markets")
+        targets = candidates[:10] if flagged else candidates[:5]
 
         for i, market in enumerate(targets):
             try:

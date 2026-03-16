@@ -253,6 +253,12 @@ class Database:
         row = conn.execute("SELECT COUNT(*) as n FROM market_snapshots").fetchone()
         return row["n"]
 
+    def get_traded_market_ids(self) -> set[str]:
+        """Return all market_ids that already have a trade (any status)."""
+        conn = self._conn()
+        rows = conn.execute("SELECT DISTINCT market_id FROM trades").fetchall()
+        return {row["market_id"] for row in rows}
+
     def get_unresolved_dry_run_trades(self) -> list[dict]:
         conn = self._conn()
         rows = conn.execute(
