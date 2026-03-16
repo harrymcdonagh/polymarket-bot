@@ -12,7 +12,7 @@ def test_negative_sentiment():
     analyzer = SentimentAnalyzer(use_transformer=False)
     result = analyzer.analyze("This is terrible and awful, complete disaster.")
     assert result["label"] == "negative"
-    assert result["score"] > 0.5
+    assert result["score"] < -0.5  # Signed: negative sentiment has negative score
 
 
 def test_batch_sentiment():

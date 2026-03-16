@@ -33,6 +33,7 @@ class RedditResearcher:
                         "comments": post.num_comments,
                         "subreddit": sub_name,
                         "source": "reddit",
+                        "created_utc": post.created_utc,
                     })
             except Exception as e:
                 logger.warning(f"Reddit search failed for r/{sub_name}: {e}")
@@ -40,6 +41,7 @@ class RedditResearcher:
 
 
 import asyncio
+from datetime import datetime, timezone
 from src.research.base import ResearchSource, ResearchResult
 
 
@@ -70,7 +72,7 @@ class RedditSource(ResearchSource):
             ResearchResult(
                 text=r["text"],
                 link="",
-                published=None,
+                published=datetime.fromtimestamp(r["created_utc"], tz=timezone.utc) if r.get("created_utc") else None,
                 source=self.name,
                 weight=self.default_weight,
             )

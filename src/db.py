@@ -117,6 +117,12 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_predictions_market_id ON predictions(market_id);
             CREATE INDEX IF NOT EXISTS idx_trade_metrics_trade_id ON trade_metrics(trade_id);
             CREATE INDEX IF NOT EXISTS idx_market_snapshots_condition_id ON market_snapshots(condition_id);
+            CREATE INDEX IF NOT EXISTS idx_trades_executed_at ON trades(executed_at);
+            CREATE INDEX IF NOT EXISTS idx_trades_settled_at ON trades(settled_at);
+            CREATE INDEX IF NOT EXISTS idx_market_snapshots_snapshot_at ON market_snapshots(snapshot_at);
+            CREATE INDEX IF NOT EXISTS idx_predictions_predicted_at ON predictions(predicted_at);
+            CREATE INDEX IF NOT EXISTS idx_market_snapshots_cond_time ON market_snapshots(condition_id, snapshot_at DESC);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_lessons_unique ON lessons(category, lesson);
         """)
         conn.commit()
         self.migrate()
@@ -155,17 +161,34 @@ class Database:
         rows = conn.execute("SELECT * FROM trades WHERE status = 'pending'").fetchall()
         return [dict(r) for r in rows]
 
-    def update_trade_status(self, trade_id: int, status: str, pnl: float | None = None):
+    def update_trade_status(self, trade_id: int, status: str, pnl: float | None = None,
+                            expected_status: str | None = None):
+        """Update trade status. If expected_status given, only update if current status matches (atomic)."""
         conn = self._conn()
         now = datetime.now(timezone.utc).isoformat()
         if pnl is not None:
-            conn.execute(
-                "UPDATE trades SET status = ?, pnl = ?, settled_at = ? WHERE id = ?",
-                (status, pnl, now, trade_id),
-            )
+            if expected_status:
+                cursor = conn.execute(
+                    "UPDATE trades SET status = ?, pnl = ?, settled_at = ? WHERE id = ? AND status = ?",
+                    (status, pnl, now, trade_id, expected_status),
+                )
+            else:
+                cursor = conn.execute(
+                    "UPDATE trades SET status = ?, pnl = ?, settled_at = ? WHERE id = ?",
+                    (status, pnl, now, trade_id),
+                )
         else:
-            conn.execute("UPDATE trades SET status = ? WHERE id = ?", (status, trade_id))
+            if expected_status:
+                cursor = conn.execute(
+                    "UPDATE trades SET status = ? WHERE id = ? AND status = ?",
+                    (status, trade_id, expected_status),
+                )
+            else:
+                cursor = conn.execute(
+                    "UPDATE trades SET status = ? WHERE id = ?", (status, trade_id),
+                )
         conn.commit()
+        return cursor.rowcount > 0
 
     def get_losing_trades(self, limit: int = 10) -> list[dict]:
         conn = self._conn()
@@ -192,7 +215,7 @@ class Database:
     def save_lesson(self, category: str, lesson: str, source_trade_id: int | None = None):
         conn = self._conn()
         conn.execute(
-            "INSERT INTO lessons (category, lesson, source_trade_id) VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO lessons (category, lesson, source_trade_id) VALUES (?, ?, ?)",
             (category, lesson, source_trade_id),
         )
         conn.commit()

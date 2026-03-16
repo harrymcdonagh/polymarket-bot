@@ -28,7 +28,7 @@ class SentimentAnalyzer:
         # Fast path: VADER is confident
         if not self.use_transformer or abs(compound) > self.ambiguity_threshold:
             label = "positive" if compound > 0.05 else ("negative" if compound < -0.05 else "neutral")
-            return {"label": label, "score": abs(compound)}
+            return {"label": label, "score": compound}
 
         # Slow path: use RoBERTa for ambiguous cases
         try:
@@ -38,7 +38,7 @@ class SentimentAnalyzer:
         except Exception as e:
             logger.warning(f"RoBERTa failed, falling back to VADER: {e}")
             label = "positive" if compound > 0.05 else ("negative" if compound < -0.05 else "neutral")
-            return {"label": label, "score": abs(compound)}
+            return {"label": label, "score": compound}
 
     def analyze_batch(self, texts: list[str]) -> list[dict]:
         """Analyze sentiment of multiple texts."""

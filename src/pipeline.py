@@ -60,7 +60,7 @@ class Pipeline:
                     settings=self.settings,
                     weight=self.settings.SOURCE_WEIGHT_REDDIT,
                 ),
-                GoogleTrendsSource(weight=0.6),
+                GoogleTrendsSource(weight=self.settings.SOURCE_WEIGHT_GOOGLE_TRENDS),
             ],
             timeout=self.settings.RESEARCH_TIMEOUT,
             sentiment_analyzer=self.sentiment,
@@ -143,11 +143,18 @@ class Pipeline:
         logger.info(f"=== STEP 3: Predicting '{market.question[:60]}' ===")
 
         if research.sentiments:
-            avg_pos = sum(s.positive_ratio for s in research.sentiments) / len(research.sentiments)
-            avg_neg = sum(s.negative_ratio for s in research.sentiments) / len(research.sentiments)
-            avg_neu = sum(s.neutral_ratio for s in research.sentiments) / len(research.sentiments)
-            avg_score = sum(s.avg_compound_score for s in research.sentiments) / len(research.sentiments)
             total_samples = sum(s.sample_size for s in research.sentiments)
+            # Weight sentiment by sample size so high-sample sources dominate
+            if total_samples > 0:
+                avg_pos = sum(s.positive_ratio * s.sample_size for s in research.sentiments) / total_samples
+                avg_neg = sum(s.negative_ratio * s.sample_size for s in research.sentiments) / total_samples
+                avg_neu = sum(s.neutral_ratio * s.sample_size for s in research.sentiments) / total_samples
+                avg_score = sum(s.avg_compound_score * s.sample_size for s in research.sentiments) / total_samples
+            else:
+                avg_pos = sum(s.positive_ratio for s in research.sentiments) / len(research.sentiments)
+                avg_neg = sum(s.negative_ratio for s in research.sentiments) / len(research.sentiments)
+                avg_neu = sum(s.neutral_ratio for s in research.sentiments) / len(research.sentiments)
+                avg_score = sum(s.avg_compound_score for s in research.sentiments) / len(research.sentiments)
             source_scores = [s.avg_compound_score for s in research.sentiments]
         else:
             avg_pos = avg_neg = avg_neu = avg_score = 0
@@ -172,6 +179,9 @@ class Pipeline:
         prediction = await self.calibrator.calibrate(
             market, research, xgb_prob, lessons=recent_lessons,
         )
+
+        # Stash features for saving with prediction
+        prediction._features = features
 
         logger.info(
             f"Prediction: {prediction.recommended_side} | "
@@ -244,10 +254,19 @@ class Pipeline:
             logger.info(f"Skipped {skipped} already-traded markets")
         targets = candidates[:20] if flagged else candidates[:10]
 
+        # Parallelize research for all targets (the slow part)
+        self._set_activity("researching", f"Researching {len(targets)} markets in parallel")
+        research_tasks = [self.research(m) for m in targets]
+        research_results = await asyncio.gather(*research_tasks, return_exceptions=True)
+
         for i, market in enumerate(targets):
             try:
-                self._set_activity("researching", f"[{i+1}/{len(targets)}] {market.question}")
-                research = await self.research(market)
+                # Use pre-fetched research result
+                research = research_results[i]
+                if isinstance(research, Exception):
+                    logger.error(f"Research failed for {market.question[:50]}: {research}")
+                    continue
+
                 self._set_activity("predicting", f"[{i+1}/{len(targets)}] {market.question}")
                 prediction = await self.predict(market, research)
                 self._set_activity("evaluating", f"[{i+1}/{len(targets)}] {market.question}")
@@ -267,7 +286,7 @@ class Pipeline:
                     approved=decision.approved,
                     rejection_reason=decision.rejection_reason,
                     bet_size=decision.bet_size_usd,
-                    features_json=json.dumps(features),
+                    features_json=json.dumps(getattr(prediction, '_features', {})),
                 )
 
                 if not decision.approved:

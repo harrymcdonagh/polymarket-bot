@@ -1,4 +1,5 @@
 # src/research/rss.py
+import asyncio
 import logging
 import time
 from difflib import SequenceMatcher
@@ -158,8 +159,9 @@ class RSSSource(ResearchSource):
 
     async def search(self, query: str) -> list[ResearchResult]:
         results = []
+        loop = asyncio.get_event_loop()
         for feed in self.feeds:
-            entries = self._fetch_feed(feed, query)
+            entries = await loop.run_in_executor(None, self._fetch_feed, feed, query)
             source_tag = feed["source_tag"]
             weight = self._weight_overrides.get(source_tag, feed["weight"])
 

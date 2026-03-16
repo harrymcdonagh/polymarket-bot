@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import httpx
 
@@ -16,31 +17,38 @@ class TelegramNotifier:
     def is_enabled(self) -> bool:
         return bool(self.bot_token and self.chat_id)
 
-    async def send(self, text: str) -> None:
+    async def send(self, text: str, max_retries: int = 3) -> None:
         if not self.is_enabled:
             return
         url = TELEGRAM_API.format(token=self.bot_token)
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.post(url, json={
-                    "chat_id": self.chat_id,
-                    "text": text,
-                    "parse_mode": "Markdown",
-                })
-                if resp.status_code != 200:
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(url, json={
+                        "chat_id": self.chat_id,
+                        "text": text,
+                        "parse_mode": "Markdown",
+                    })
+                    if resp.status_code == 200:
+                        self._consecutive_failures = 0
+                        return
                     self._consecutive_failures += 1
-                    if self._consecutive_failures >= 3:
-                        logger.error(f"Telegram send failed {self._consecutive_failures} times in a row (status {resp.status_code}). Check bot token and chat ID.")
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Telegram send failed (attempt {attempt+1}): {resp.status_code}")
+                        await asyncio.sleep(2 ** attempt)
+                    elif self._consecutive_failures >= 3:
+                        logger.error(f"Telegram send failed {self._consecutive_failures} times (status {resp.status_code}). Check bot token and chat ID.")
                     else:
-                        logger.warning(f"Telegram send failed: {resp.status_code} {resp.text}")
+                        logger.warning(f"Telegram send failed: {resp.status_code} {resp.text[:200]}")
+            except Exception as e:
+                self._consecutive_failures += 1
+                if attempt < max_retries - 1:
+                    logger.warning(f"Telegram send error (attempt {attempt+1}): {e}")
+                    await asyncio.sleep(2 ** attempt)
+                elif self._consecutive_failures >= 3:
+                    logger.error(f"Telegram send failed {self._consecutive_failures} times: {e}. Check network and bot config.")
                 else:
-                    self._consecutive_failures = 0
-        except Exception as e:
-            self._consecutive_failures += 1
-            if self._consecutive_failures >= 3:
-                logger.error(f"Telegram send failed {self._consecutive_failures} times: {e}. Check network and bot config.")
-            else:
-                logger.warning(f"Telegram send error: {e}")
+                    logger.warning(f"Telegram send error: {e}")
 
     def format_trade_alert(self, question: str, side: str, amount: float,
                            price: float, edge: float) -> str:

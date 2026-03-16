@@ -20,28 +20,30 @@ def settler(tmp_db):
 
 def test_calc_hypothetical_pnl_win_yes(settler):
     # Bought YES at $0.40 for $10. Market resolved YES.
-    # Shares = 10 / 0.40 = 25. Payout = 25 * 1.0 = 25. PnL = 25 - 10 = 15
+    # Shares = 10 / 0.40 = 25. Payout = 25 * 1.0 = 25. PnL = 25 - 10 - fee(0.20) = 14.80
     pnl = settler.calc_hypothetical_pnl(side="YES", amount=10.0, price=0.40, outcome="YES")
-    assert pnl == pytest.approx(15.0)
+    assert pnl == pytest.approx(14.80)
 
 
 def test_calc_hypothetical_pnl_loss_yes(settler):
     # Bought YES at $0.40 for $10. Market resolved NO.
+    # PnL = -10 - fee(0.20) = -10.20
     pnl = settler.calc_hypothetical_pnl(side="YES", amount=10.0, price=0.40, outcome="NO")
-    assert pnl == pytest.approx(-10.0)
+    assert pnl == pytest.approx(-10.20)
 
 
 def test_calc_hypothetical_pnl_win_no(settler):
     # Bought NO. yes_price=0.60, so NO price = 0.40. Amount=$10.
-    # Shares = 10 / 0.40 = 25. Payout = 25. PnL = 25 - 10 = 15
+    # Shares = 10 / 0.40 = 25. Payout = 25. PnL = 25 - 10 - fee(0.20) = 14.80
     pnl = settler.calc_hypothetical_pnl(side="NO", amount=10.0, price=0.60, outcome="NO")
-    assert pnl == pytest.approx(15.0)
+    assert pnl == pytest.approx(14.80)
 
 
 def test_calc_hypothetical_pnl_loss_no(settler):
     # Bought NO at $0.60 for $10. Market resolved YES.
+    # PnL = -10 - fee(0.20) = -10.20
     pnl = settler.calc_hypothetical_pnl(side="NO", amount=10.0, price=0.60, outcome="YES")
-    assert pnl == pytest.approx(-10.0)
+    assert pnl == pytest.approx(-10.20)
 
 
 @pytest.mark.asyncio

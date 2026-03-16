@@ -42,10 +42,12 @@ For WRONG predictions: focus on what went wrong and how to avoid the same mistak
 Return ONLY valid JSON."""
 
 class PostmortemAnalyzer:
-    def __init__(self, anthropic_client=None, settings: Settings | None = None, db: Database | None = None):
+    def __init__(self, anthropic_client=None, settings: Settings | None = None, db: Database | None = None,
+                 min_edge_to_analyze: float = 0.05):
         self.settings = settings or Settings()
         self.client = anthropic_client or anthropic.Anthropic(api_key=self.settings.ANTHROPIC_API_KEY)
         self.db = db
+        self.min_edge_to_analyze = min_edge_to_analyze
 
     async def analyze_loss(
         self,
@@ -168,7 +170,7 @@ class PostmortemAnalyzer:
             pred = self.db.get_prediction_for_market(trade["market_id"]) if self.db else None
             edge = abs(pred.get("edge", 0)) if pred else 0
 
-            if edge > 0.05:  # Only analyze high-edge trades
+            if edge > self.min_edge_to_analyze:
                 report = await self.analyze_loss(
                     question=question,
                     predicted_prob=trade.get("predicted_prob", 0.5),

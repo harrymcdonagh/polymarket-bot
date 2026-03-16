@@ -54,26 +54,28 @@ class Settler:
             return None
 
     def calc_hypothetical_pnl(self, side: str, amount: float, price: float,
-                              outcome: str) -> float:
-        """Calculate what the P&L would have been.
+                              outcome: str, fee_rate: float = 0.02) -> float:
+        """Calculate what the P&L would have been, net of Polymarket fees.
 
         On Polymarket, buying shares at price P means you get (amount/P) shares.
         If your side wins, each share pays $1. If it loses, shares are worth $0.
         Note: price stored is always yes_price. For NO trades, NO share price = 1 - yes_price.
+        Fee is charged on entry (buy) amount.
         """
+        fee = amount * fee_rate
         if side == "YES":
             shares = amount / price
             if outcome == "YES":
-                return shares * 1.0 - amount
+                return shares * 1.0 - amount - fee
             else:
-                return -amount
+                return -amount - fee
         else:  # NO
             no_share_price = 1.0 - price
             shares = amount / no_share_price
             if outcome == "NO":
-                return shares * 1.0 - amount
+                return shares * 1.0 - amount - fee
             else:
-                return -amount
+                return -amount - fee
 
     async def run(self) -> None:
         """Check all unresolved dry-run trades and settle any that have resolved."""

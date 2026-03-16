@@ -2,6 +2,7 @@
 import json
 import logging
 import math
+from datetime import datetime, timezone
 import httpx
 from src.predictor.xgb_model import PredictionModel, FEATURE_ORDER
 from src.db import Database
@@ -160,6 +161,18 @@ async def train_from_history(db_path: str = "data/polymarket.db",
         _log_feature_importances(model)
 
         model.save(model_path)
+        # Save model metadata for tracking degradation
+        meta = {
+            "trained_at": datetime.now(timezone.utc).isoformat(),
+            "n_train": len(train_labels),
+            "n_test": len(test_features),
+            "accuracy": accuracy if test_features else None,
+            "brier": brier if test_features else None,
+            "yes_ratio": sum(train_labels) / len(train_labels),
+            "feature_count": len(FEATURE_ORDER),
+        }
+        with open(model_path + ".meta.json", "w") as f:
+            json.dump(meta, f, indent=2)
         logger.info(f"Model trained on {len(train_labels)} trades, saved to {model_path}")
         db.close()
         return model

@@ -26,18 +26,24 @@ class PredictionModel:
 
     def train(self, feature_dicts: list[dict], labels: list[int],
               n_estimators: int = 100, max_depth: int = 4, learning_rate: float = 0.1):
-        """Train XGBoost on historical data."""
+        """Train XGBoost on historical data with automatic class balancing."""
         X = np.array([[fd.get(f, 0.0) for f in FEATURE_ORDER] for fd in feature_dicts])
         y = np.array(labels)
+        # Handle class imbalance: weight minority class higher
+        pos_count = int(y.sum())
+        neg_count = len(y) - pos_count
+        scale_pos = neg_count / max(pos_count, 1) if pos_count < neg_count else 1.0
         self.model = xgb.XGBClassifier(
             n_estimators=n_estimators,
             max_depth=max_depth,
             learning_rate=learning_rate,
             objective="binary:logistic",
             eval_metric="logloss",
+            scale_pos_weight=scale_pos,
         )
         self.model.fit(X, y)
-        logger.info("XGBoost model trained on %d samples", len(labels))
+        logger.info("XGBoost model trained on %d samples (YES=%d, NO=%d, scale_pos_weight=%.2f)",
+                     len(labels), pos_count, neg_count, scale_pos)
 
     def predict(self, features: dict) -> float | None:
         """Return predicted probability of YES outcome, or None if no model."""

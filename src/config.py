@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     SOURCE_WEIGHT_RSS_GOOGLE: float = 0.7
     SOURCE_WEIGHT_TWITTER: float = 0.5
     SOURCE_WEIGHT_REDDIT: float = 0.6
+    SOURCE_WEIGHT_GOOGLE_TRENDS: float = 0.6
     RESEARCH_TIMEOUT: int = 10
 
     # LLM model names
@@ -106,6 +107,7 @@ class Settings(BaseSettings):
         "SOURCE_WEIGHT_NEWSAPI", "SOURCE_WEIGHT_RSS_MAJOR",
         "SOURCE_WEIGHT_RSS_PREDICTION", "SOURCE_WEIGHT_RSS_GOOGLE",
         "SOURCE_WEIGHT_TWITTER", "SOURCE_WEIGHT_REDDIT",
+        "SOURCE_WEIGHT_GOOGLE_TRENDS",
     )
     @classmethod
     def weight_range(cls, v: float) -> float:
