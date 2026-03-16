@@ -279,7 +279,7 @@
         }
 
         /* Stats row */
-        if (evt.detail.target.className === 'stats-row') {
+        if (evt.detail.target.classList.contains('stats-row')) {
             const s = JSON.parse(evt.detail.xhr.responseText);
             const pnlColor = s.total_pnl >= 0 ? 'var(--neon)' : 'var(--red)';
             const pnlSign = s.total_pnl >= 0 ? '+' : '';
@@ -352,16 +352,36 @@
             if (markets.length === 0) {
                 evt.detail.serverResponse = '<p class="muted">No flagged markets.</p>';
             } else {
-                let html = '<table><tr><th>Market</th><th>YES</th><th>Flags</th></tr>';
+                let html = '<table><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th></tr>';
                 markets.forEach(m => {
-                    const rawFlags = m.flags || [];
-                    const flags = esc(Array.isArray(rawFlags) ? rawFlags.join(', ') : rawFlags) || '—';
                     const price = m.yes_price.toFixed(2);
                     const priceColor = m.yes_price > 0.7 ? 'var(--neon)' : m.yes_price < 0.3 ? 'var(--red)' : 'var(--text-secondary)';
+
+                    let resultHtml = '';
+                    if (m.trade_status) {
+                        // Was traded
+                        resultHtml = `<span style="color:var(--neon);font-weight:600">${esc(m.recommended_side)} $${m.trade_amount.toFixed(0)}</span>`;
+                    } else if (m.approved === 0 && m.rejection_reason) {
+                        // Evaluated but blocked
+                        const reason = m.rejection_reason.length > 25 ? m.rejection_reason.substring(0, 25) + '...' : m.rejection_reason;
+                        resultHtml = `<span style="color:var(--red);font-size:0.65rem">${esc(reason)}</span>`;
+                    } else if (m.recommended_side) {
+                        // Evaluated, approved but not traded (shouldn't happen normally)
+                        resultHtml = `<span style="color:var(--amber)">${esc(m.recommended_side)}</span>`;
+                    } else {
+                        // Not evaluated
+                        resultHtml = '<span style="color:var(--text-ghost);font-size:0.65rem">Not evaluated</span>';
+                    }
+
+                    const edgeHtml = m.edge != null
+                        ? `<span style="color:var(--blue);font-weight:500">${(m.edge * 100).toFixed(1)}%</span>`
+                        : '<span style="color:var(--text-ghost)">—</span>';
+
                     html += `<tr>
-                        <td>${esc((m.question||'').substring(0,45))}</td>
+                        <td>${esc((m.question||'').substring(0,40))}</td>
                         <td style="color:${priceColor};font-weight:600">${price}</td>
-                        <td style="color:var(--amber);font-size:0.68rem">${flags}</td>
+                        <td>${resultHtml}</td>
+                        <td>${edgeHtml}</td>
                     </tr>`;
                 });
                 evt.detail.serverResponse = html + '</table>';

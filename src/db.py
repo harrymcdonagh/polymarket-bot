@@ -324,6 +324,32 @@ class Database:
             "accuracy": round(correct / len(rows), 4) if rows else 0,
         }
 
+    def get_flagged_markets_with_predictions(self, limit: int = 30) -> list[dict]:
+        """Get flagged markets joined with their prediction outcome (if evaluated)."""
+        conn = self._conn()
+        rows = conn.execute(
+            """SELECT ms.condition_id, ms.question, ms.yes_price, ms.flags, ms.snapshot_at,
+                      p.recommended_side, p.edge, p.confidence, p.approved, p.rejection_reason,
+                      t.status as trade_status, t.amount as trade_amount
+               FROM market_snapshots ms
+               LEFT JOIN (
+                   SELECT market_id, recommended_side, edge, confidence, approved, rejection_reason,
+                          ROW_NUMBER() OVER (PARTITION BY market_id ORDER BY predicted_at DESC) as rn
+                   FROM predictions
+               ) p ON ms.condition_id = p.market_id AND p.rn = 1
+               LEFT JOIN (
+                   SELECT market_id, status, amount,
+                          ROW_NUMBER() OVER (PARTITION BY market_id ORDER BY executed_at DESC) as rn
+                   FROM trades
+               ) t ON ms.condition_id = t.market_id AND t.rn = 1
+               WHERE ms.flags != '' AND ms.flags IS NOT NULL
+               GROUP BY ms.condition_id
+               ORDER BY ms.snapshot_at DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_traded_market_ids(self) -> set[str]:
         """Return all market_ids that already have a trade (any status)."""
         conn = self._conn()

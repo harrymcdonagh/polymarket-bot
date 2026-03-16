@@ -79,16 +79,8 @@ class DashboardService:
     def get_flagged_markets(self) -> list:
         if self._last_scan_results:
             return self._last_scan_results
-        # Fall back to recent flagged snapshots from DB
-        conn = self.db._conn()
-        rows = conn.execute(
-            """SELECT condition_id, question, yes_price, no_price, spread,
-                      liquidity, volume_24h, flags, snapshot_at
-               FROM market_snapshots
-               WHERE flags != '' AND flags IS NOT NULL
-               ORDER BY snapshot_at DESC LIMIT 20"""
-        ).fetchall()
-        return [dict(r) for r in rows]
+        # Fall back to recent flagged snapshots joined with prediction outcomes
+        return self.db.get_flagged_markets_with_predictions(limit=30)
 
     def get_pnl_history(self) -> list[dict]:
         return self.db.get_pnl_history()
