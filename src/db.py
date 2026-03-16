@@ -388,37 +388,30 @@ class Database:
         }
 
     def get_flagged_markets_with_predictions(self, limit: int = 30) -> list[dict]:
-        """Get flagged markets joined with their prediction outcome (if evaluated)."""
+        """Get markets that have predictions, enriched with snapshot and trade data."""
         conn = self._conn()
-        # Get unique flagged markets (latest snapshot per condition_id)
         rows = conn.execute(
-            """SELECT ms.condition_id, ms.question, ms.yes_price, ms.flags, ms.snapshot_at
-               FROM market_snapshots ms
+            """SELECT p.market_id AS condition_id, p.question, p.market_yes_price AS yes_price,
+                      p.recommended_side, p.edge, p.confidence, p.approved, p.rejection_reason,
+                      p.predicted_at
+               FROM predictions p
                INNER JOIN (
-                   SELECT condition_id, MAX(snapshot_at) as max_at
-                   FROM market_snapshots
-                   WHERE flags != '' AND flags IS NOT NULL
-                   GROUP BY condition_id
-               ) latest ON ms.condition_id = latest.condition_id AND ms.snapshot_at = latest.max_at
-               ORDER BY ms.snapshot_at DESC
+                   SELECT market_id, MAX(predicted_at) as max_at
+                   FROM predictions
+                   GROUP BY market_id
+               ) latest ON p.market_id = latest.market_id AND p.predicted_at = latest.max_at
+               ORDER BY p.predicted_at DESC
                LIMIT ?""",
             (limit,),
         ).fetchall()
         markets = [dict(r) for r in rows]
 
-        # Enrich with prediction and trade data
+        # Enrich with trade data
         for m in markets:
-            cid = m["condition_id"]
-            pred = conn.execute(
-                "SELECT recommended_side, edge, confidence, approved, rejection_reason FROM predictions WHERE market_id = ? ORDER BY predicted_at DESC LIMIT 1",
-                (cid,),
-            ).fetchone()
             trade = conn.execute(
                 "SELECT status, amount FROM trades WHERE market_id = ? ORDER BY executed_at DESC LIMIT 1",
-                (cid,),
+                (m["condition_id"],),
             ).fetchone()
-            if pred:
-                m.update({k: pred[k] for k in pred.keys()})
             if trade:
                 m["trade_status"] = trade["status"]
                 m["trade_amount"] = trade["amount"]
