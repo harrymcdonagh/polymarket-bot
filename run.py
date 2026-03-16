@@ -13,6 +13,10 @@ def main():
     )
     logger = logging.getLogger("polymarket-bot")
 
+    # Ensure data directory exists
+    import os
+    os.makedirs(os.path.dirname(settings.DB_PATH) or ".", exist_ok=True)
+
     if "--train" in sys.argv:
         from src.predictor.trainer import train_from_history
         logger.info("Training XGBoost model on historical data...")

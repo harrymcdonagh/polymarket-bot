@@ -21,11 +21,11 @@ from src.models import ResearchReport, SentimentResult, ScannedMarket
 logger = logging.getLogger(__name__)
 
 class Pipeline:
-    def __init__(self, settings: Settings | None = None, db_path: str = "bot.db",
+    def __init__(self, settings: Settings | None = None, db_path: str | None = None,
                  status_callback=None):
         self.settings = settings or Settings()
         self._status_callback = status_callback
-        self.db = Database(db_path)
+        self.db = Database(db_path or self.settings.DB_PATH)
         self.db.init()
         self.scanner = MarketScanner(self.settings)
         self.sentiment = SentimentAnalyzer(

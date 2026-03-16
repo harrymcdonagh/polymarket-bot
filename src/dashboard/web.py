@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from src.dashboard.service import DashboardService
+from src.config import Settings
 
 DASHBOARD_DIR = Path(__file__).parent
 TEMPLATES_DIR = DASHBOARD_DIR / "templates"
@@ -26,8 +27,9 @@ class ScanRequest(BaseModel):
     dry_run: bool | None = None
 
 
-def create_app(settings=None, db_path: str = "bot.db") -> FastAPI:
-    service = DashboardService(settings=settings, db_path=db_path)
+def create_app(settings=None, db_path: str | None = None) -> FastAPI:
+    settings = settings or Settings()
+    service = DashboardService(settings=settings, db_path=db_path or settings.DB_PATH)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
