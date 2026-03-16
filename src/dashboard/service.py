@@ -59,8 +59,12 @@ class DashboardService:
 
     def get_stats(self) -> dict:
         trade_stats = self.db.get_trade_stats()
+        pred_stats = self.db.get_prediction_stats()
+        accuracy = self.db.get_prediction_accuracy()
         return {
             **trade_stats,
+            **pred_stats,
+            "prediction_accuracy": accuracy,
             "open_trades": len(self.db.get_open_trades()),
             "today_pnl": self.db.get_daily_pnl(),
             "snapshot_count": self.db.get_snapshot_count(),

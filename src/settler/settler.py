@@ -137,12 +137,24 @@ class Settler:
 
         stats = self.db.get_trade_stats()
         dry_run_count = self.db.get_dry_run_trade_count()
+        pred_stats = self.db.get_prediction_stats()
+        accuracy = self.db.get_prediction_accuracy()
+        daily_pnl = self.db.get_daily_pnl()
+        snapshots = self.db.get_snapshot_count()
+
+        acc_str = f"{accuracy['accuracy']:.0%} ({accuracy['correct']}/{accuracy['evaluated']})" if accuracy['evaluated'] > 0 else "No resolved trades yet"
 
         msg = (
-            f"*Daily Summary ({today})*\n"
-            f"Dry-run trades: {dry_run_count}\n"
-            f"Settled: {stats['total_trades']} | Win rate: {stats['win_rate']:.0%}\n"
-            f"Total P&L: ${stats['total_pnl']:.2f}"
+            f"*Daily Summary ({today})*\n\n"
+            f"*Predictions:* {pred_stats['total_predictions']} total\n"
+            f"  Approved: {pred_stats['approved']} | Blocked: {pred_stats['blocked']}\n"
+            f"  Avg confidence: {pred_stats['avg_confidence']:.2f}\n"
+            f"  Avg edge: {pred_stats['avg_edge']:.2%}\n\n"
+            f"*Trades:* {dry_run_count} dry-run\n"
+            f"  Settled: {stats['settled_trades']} | Win rate: {stats['win_rate']:.0%}\n"
+            f"  Accuracy: {acc_str}\n\n"
+            f"*P&L:* Today ${daily_pnl:.2f} | Total ${stats['total_pnl']:.2f}\n"
+            f"*Snapshots:* {snapshots}"
         )
         await self.notifier.send(msg)
         self._last_summary_date = today

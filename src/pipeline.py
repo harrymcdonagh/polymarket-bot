@@ -230,7 +230,7 @@ class Pipeline:
         if len(candidates) < len(flagged if flagged else markets):
             skipped = (len(flagged) if flagged else len(markets)) - len(candidates)
             logger.info(f"Skipped {skipped} already-traded markets")
-        targets = candidates[:10] if flagged else candidates[:5]
+        targets = candidates[:20] if flagged else candidates[:10]
 
         for i, market in enumerate(targets):
             try:
@@ -240,6 +240,29 @@ class Pipeline:
                 prediction = await self.predict(market, research)
                 self._set_activity("evaluating", f"[{i+1}/{len(targets)}] {market.question}")
                 decision = self.evaluate_risk(prediction)
+
+                # Save every prediction for accuracy tracking
+                self.db.save_prediction(
+                    market_id=market.condition_id,
+                    question=market.question,
+                    market_yes_price=market.yes_price,
+                    predicted_prob=prediction.predicted_probability,
+                    xgb_prob=prediction.xgb_probability,
+                    llm_prob=prediction.llm_probability,
+                    edge=prediction.edge,
+                    confidence=prediction.confidence,
+                    recommended_side=prediction.recommended_side,
+                    approved=decision.approved,
+                    rejection_reason=decision.rejection_reason,
+                    bet_size=decision.bet_size_usd,
+                )
+
+                if not decision.approved:
+                    logger.info(
+                        f"[BLOCKED] {market.question[:50]} | "
+                        f"{prediction.recommended_side} | edge={prediction.edge:.2%} | "
+                        f"conf={prediction.confidence:.2f} | reason: {decision.rejection_reason}"
+                    )
 
                 if decision.approved and not dry_run:
                     if self.executor is None:

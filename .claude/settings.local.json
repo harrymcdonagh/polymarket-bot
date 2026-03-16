@@ -24,7 +24,8 @@
       "Bash(chmod +x deploy/setup.sh && git add deploy/setup.sh && git commit -m \"feat: add server setup script for Ubuntu droplet\")",
       "Bash(python -m pytest tests/test_db_migration.py tests/test_telegram.py tests/test_settler.py tests/test_web_auth.py -v 2>&1 | tail -30)",
       "Bash(git push:*)",
-      "Bash(cd D:/polymarket-bot && python -m pytest tests/test_db_migration.py tests/test_web_auth.py -v --tb=short 2>&1 | head -50)"
+      "Bash(cd D:/polymarket-bot && python -m pytest tests/test_db_migration.py tests/test_web_auth.py -v --tb=short 2>&1 | head -50)",
+      "Bash(cd D:/polymarket-bot && python -m pytest tests/ -v --tb=short 2>&1 | tail -40)"
     ]
   }
 }

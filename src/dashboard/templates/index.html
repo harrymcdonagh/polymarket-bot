@@ -240,6 +240,14 @@
                     <div class="stat-label">Hypothetical PnL</div>
                 </div>
                 <div class="stat-card">
+                    <div class="stat-value">${s.total_predictions || 0}</div>
+                    <div class="stat-label">Predictions (${s.approved || 0}/${s.blocked || 0})</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${s.prediction_accuracy && s.prediction_accuracy.evaluated > 0 ? (s.prediction_accuracy.accuracy * 100).toFixed(0) + '%' : '—'}</div>
+                    <div class="stat-label">Accuracy${s.prediction_accuracy && s.prediction_accuracy.evaluated > 0 ? ' (' + s.prediction_accuracy.correct + '/' + s.prediction_accuracy.evaluated + ')' : ''}</div>
+                </div>
+                <div class="stat-card">
                     <div class="stat-value">${s.snapshot_count}</div>
                     <div class="stat-label">Snapshots</div>
                 </div>`;

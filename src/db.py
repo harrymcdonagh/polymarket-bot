@@ -81,6 +81,22 @@ class Database:
                 source_trade_id INTEGER,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS predictions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                market_id TEXT NOT NULL,
+                question TEXT,
+                market_yes_price REAL,
+                predicted_prob REAL,
+                xgb_prob REAL,
+                llm_prob REAL,
+                edge REAL,
+                confidence REAL,
+                recommended_side TEXT,
+                approved INTEGER DEFAULT 0,
+                rejection_reason TEXT,
+                bet_size REAL,
+                predicted_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         conn.commit()
         self.migrate()
@@ -252,6 +268,61 @@ class Database:
         conn = self._conn()
         row = conn.execute("SELECT COUNT(*) as n FROM market_snapshots").fetchone()
         return row["n"]
+
+    def save_prediction(self, market_id: str, question: str, market_yes_price: float,
+                        predicted_prob: float, xgb_prob: float, llm_prob: float,
+                        edge: float, confidence: float, recommended_side: str,
+                        approved: bool, rejection_reason: str | None = None,
+                        bet_size: float = 0):
+        conn = self._conn()
+        conn.execute(
+            """INSERT INTO predictions
+               (market_id, question, market_yes_price, predicted_prob, xgb_prob, llm_prob,
+                edge, confidence, recommended_side, approved, rejection_reason, bet_size)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (market_id, question, market_yes_price, predicted_prob, xgb_prob, llm_prob,
+             edge, confidence, recommended_side, 1 if approved else 0,
+             rejection_reason, bet_size),
+        )
+        conn.commit()
+
+    def get_prediction_stats(self) -> dict:
+        conn = self._conn()
+        total = conn.execute("SELECT COUNT(*) as n FROM predictions").fetchone()["n"]
+        approved = conn.execute("SELECT COUNT(*) as n FROM predictions WHERE approved = 1").fetchone()["n"]
+        blocked = total - approved
+        avg_confidence = conn.execute(
+            "SELECT COALESCE(AVG(confidence), 0) as v FROM predictions"
+        ).fetchone()["v"]
+        avg_edge = conn.execute(
+            "SELECT COALESCE(AVG(ABS(edge)), 0) as v FROM predictions"
+        ).fetchone()["v"]
+        return {
+            "total_predictions": total,
+            "approved": approved,
+            "blocked": blocked,
+            "avg_confidence": round(avg_confidence, 4),
+            "avg_edge": round(avg_edge, 4),
+        }
+
+    def get_prediction_accuracy(self) -> dict:
+        """Compare predictions against resolved outcomes."""
+        conn = self._conn()
+        rows = conn.execute(
+            """SELECT p.market_id, p.recommended_side, p.predicted_prob, p.edge,
+                      t.resolved_outcome, t.hypothetical_pnl
+               FROM predictions p
+               JOIN trades t ON p.market_id = t.market_id
+               WHERE t.resolved_outcome IS NOT NULL AND p.approved = 1"""
+        ).fetchall()
+        if not rows:
+            return {"evaluated": 0, "correct": 0, "accuracy": 0}
+        correct = sum(1 for r in rows if r["recommended_side"] == r["resolved_outcome"])
+        return {
+            "evaluated": len(rows),
+            "correct": correct,
+            "accuracy": round(correct / len(rows), 4) if rows else 0,
+        }
 
     def get_traded_market_ids(self) -> set[str]:
         """Return all market_ids that already have a trade (any status)."""
