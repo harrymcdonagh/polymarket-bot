@@ -32,7 +32,7 @@ Market Question
     │   → structured_features dict
     │
     └── extract_features(market, sentiment_agg, structured_data)
-        → 32 features (up from 20) → XGBoost + Calibrator
+        → 33 features (up from 20) → XGBoost + Calibrator
 ```
 
 ## Track 1: New Text Sources
@@ -41,7 +41,7 @@ Market Question
 
 A `ResearchSource` adapter that queries the free Metaculus API for community forecasts from calibrated superforecasters.
 
-- **API:** `GET https://www.metaculus.com/api2/questions/?search={query}&status=open`
+- **API:** `GET https://www.metaculus.com/api/questions/?search={query}&status=open&type=forecast` (v2 API, no auth needed)
 - **Output:** Synthetic text like "Metaculus community predicts 73% likelihood (847 forecasters)"
 - **Weight:** 0.9 (high — calibrated forecasters)
 - **Availability:** Always (no key needed)
@@ -62,7 +62,7 @@ A `ResearchSource` adapter that fetches PredictIt market prices and fuzzy-matche
 
 A `ResearchSource` adapter that fetches today's current events from Wikipedia.
 
-- **API:** `GET https://en.wikipedia.org/api/rest_v1/page/html/Portal:Current_events` or parse the daily events feed
+- **API:** `GET https://en.wikipedia.org/api/rest_v1/page/html/Portal%3ACurrent_events` — returns HTML of today's events. Parse with `html.parser` to extract list items. Each `<li>` is one event headline.
 - **Output:** Matching headlines as ResearchResults
 - **Weight:** 0.7 (factual but not predictive)
 - **Availability:** Always (no key needed)
@@ -116,27 +116,29 @@ Fetches current crypto prices and 24h changes. Only activates for crypto-related
 - **Features returned:**
   - `crypto_price_usd` — current price (0 if not crypto market)
   - `crypto_24h_change` — percentage change (0 if not crypto)
-  - `crypto_market_cap_rank` — size of the coin (0 if not crypto)
+  - `crypto_market_cap` — market cap in USD from `/simple/price?include_market_cap=true` (0 if not crypto). Log-transformed in features.py.
   - `crypto_is_relevant` — 1.0 if crypto market, 0.0 otherwise
-- **Rate limit:** 30 calls/min free tier. Cache responses for 5 minutes.
+- **Rate limit:** 30 calls/min free tier. In-memory cache with 5-minute TTL (dict of `{coin_id: (timestamp, data)}`).
 - **Availability:** Always (no key needed)
 
 ### FRED Economic Indicators (`src/research/fred.py`)
 
 Fetches key economic indicators. Only activates for economic/political markets.
 
-- **Data source:** Public FRED data. Use `httpx` to fetch latest observations for 3 key series:
+- **Data source:** FRED API requires a free API key (register at https://fred.stlouisfed.org/docs/api/api_key.html). Add `FRED_API_KEY` to config.
+- **API:** `GET https://api.stlouisfed.org/fred/series/observations?series_id={ID}&api_key={KEY}&file_type=json&sort_order=desc&limit=1`
+- **Series fetched:**
   - `CPIAUCSL` — Consumer Price Index (inflation)
   - `FEDFUNDS` — Federal Funds Rate
   - `UNRATE` — Unemployment Rate
 - **Activation:** Keyword detection: inflation, CPI, interest rate, Fed, unemployment, recession, GDP, economy, etc.
-- **Features returned:**
+- **Features returned (4):**
   - `fred_cpi_latest` — latest CPI reading (0 if not economic market)
   - `fred_fed_funds_rate` — current rate (0 if not economic)
   - `fred_unemployment` — latest rate (0 if not economic)
   - `fred_is_relevant` — 1.0 if economic market, 0.0 otherwise
-- **Caching:** Fetch once per 6 hours (economic data updates monthly/quarterly, not per-cycle)
-- **Availability:** True if initial fetch succeeds
+- **Caching:** In-memory dict with 6-hour TTL (economic data updates monthly/quarterly, not per-cycle)
+- **Availability:** True if `FRED_API_KEY` is set and initial fetch succeeds. Gracefully disabled otherwise.
 
 ### Orchestration (`src/research/structured_pipeline.py`)
 
@@ -160,11 +162,13 @@ class StructuredDataPipeline:
 
 **Flow:**
 1. VADER scores all texts (fast, free)
-2. Texts where `abs(compound) < SENTIMENT_LLM_THRESHOLD` are "ambiguous"
+2. Texts where `abs(compound) < SENTIMENT_LLM_THRESHOLD` are "ambiguous" — i.e., VADER's confidence is low (compound close to 0). This is the OPPOSITE of the existing RoBERTa trigger (which fires when `abs(compound) > ambiguity_threshold`). The LLM threshold replaces the RoBERTa path entirely.
 3. Ambiguous texts are batched (10-15 per call) and sent to Haiku
 4. Haiku returns JSON: `[{"label": "positive|negative|neutral", "score": -1.0 to 1.0}, ...]`
 5. Haiku results replace VADER results for those texts
-6. If Haiku fails, VADER result stands (fallback)
+6. If Haiku fails or returns malformed JSON, VADER result stands (fallback). Use `re.search(r'\[.*\]', text, re.DOTALL)` JSON extraction as fallback parser, same pattern as calibrator.py.
+
+**Score semantics:** Both VADER and Haiku return scores on the same scale: -1.0 (negative/bearish) to +1.0 (positive/bullish). The `label` field maps: score > 0.05 = "positive", score < -0.05 = "negative", else "neutral". This matches the existing VADER output shape exactly — downstream consumers (`research/pipeline.py`, `features.py`) are unchanged.
 
 **Haiku prompt (kept minimal for speed/cost):**
 ```
@@ -175,18 +179,18 @@ Texts:
 2. {text2}
 ...
 Return JSON array: [{"label":"positive","score":0.7}, ...]
-Score: -1.0 (strongly suggests NO) to 1.0 (strongly suggests YES). Label: positive/negative/neutral.
+Score: -1.0 (strongly suggests NO) to 1.0 (strongly suggests YES). Label: positive if score > 0.05, negative if < -0.05, neutral otherwise.
 Return ONLY valid JSON.
 ```
 
-**Key change:** `analyze_batch()` now accepts an optional `market_question` parameter so Haiku can contextualize sentiment relative to the market.
+**Key change:** `analyze_batch()` now accepts an optional `market_question: str` parameter so Haiku can contextualize sentiment relative to the market. When `market_question` is None, falls back to pure VADER (no LLM calls).
 
 **Config additions:**
-- `SENTIMENT_MODEL: str = "claude-haiku-4-5-20251001"`
+- `SENTIMENT_MODEL: str = "claude-haiku-4-5-20251001"` (separate from NARRATIVE_MODEL — allows independent tuning)
 - `SENTIMENT_USE_LLM: bool = True`
-- `SENTIMENT_LLM_THRESHOLD: float = 0.4` — VADER ambiguity threshold below which Haiku kicks in
+- `SENTIMENT_LLM_THRESHOLD: float = 0.4` — texts where `abs(vader_compound) < 0.4` are sent to Haiku
 
-**Cost estimate:** ~30-40% of articles are ambiguous. At 15-20 articles per market, 20 markets per cycle, every 5 minutes: ~$40-50/month.
+**Cost estimate:** Assuming 30-40% of articles are ambiguous (abs compound < 0.4), ~15-20 articles per market, 20 markets per cycle, cycles every 5 minutes: ~$40-50/month.
 
 ## Feature Integration
 
@@ -205,11 +209,12 @@ def extract_features(market, sentiment_agg, structured_data=None):
     # CoinGecko features (4)
     "crypto_price_usd": math.log1p(sd.get("crypto_price_usd", 0.0)),
     "crypto_24h_change": sd.get("crypto_24h_change", 0.0),
-    "crypto_market_cap_rank": sd.get("crypto_market_cap_rank", 0.0),
+    "crypto_market_cap": math.log1p(sd.get("crypto_market_cap", 0.0)),
     "crypto_is_relevant": sd.get("crypto_is_relevant", 0.0),
-    # FRED features (3)
+    # FRED features (4)
     "fred_cpi_latest": sd.get("fred_cpi_latest", 0.0),
     "fred_fed_funds_rate": sd.get("fred_fed_funds_rate", 0.0),
+    "fred_unemployment": sd.get("fred_unemployment", 0.0),
     "fred_is_relevant": sd.get("fred_is_relevant", 0.0),
 ```
 
@@ -217,11 +222,11 @@ Log-transform applied to depth and price values (large magnitudes).
 
 ### Changes to `src/predictor/xgb_model.py`
 
-FEATURE_ORDER grows from 20 to 32. Existing models still work — `_features_to_array()` uses `.get(f, 0.0)` for missing keys.
+FEATURE_ORDER grows from 20 to 33. Existing models still work — `_features_to_array()` uses `.get(f, 0.0)` for missing keys.
 
 ### Changes to `src/predictor/trainer.py`
 
-Gamma API fallback template gains 12 new features all defaulted to 0.
+Gamma API fallback template gains 13 new features all defaulted to 0.
 
 ### Changes to `src/pipeline.py`
 
