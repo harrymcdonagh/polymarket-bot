@@ -76,8 +76,8 @@ class Settings(BaseSettings):
 
     # Operational
     LOG_LEVEL: str = "INFO"
-    LOOP_INTERVAL: int = 7200  # full pipeline cycle (2 hours)
-    SETTLEMENT_INTERVAL: int = 1800  # settlement + postmortem check (30 mins)
+    LOOP_INTERVAL: int = 14400  # full pipeline cycle (4 hours)
+    SETTLEMENT_INTERVAL: int = 7200  # settlement + postmortem check (2 hours)
 
     # Database
     DB_PATH: str = "data/polymarket.db"

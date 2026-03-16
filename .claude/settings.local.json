@@ -64,7 +64,8 @@
       "Bash(python -c \"import ast; ast.parse\\(open\\('src/research/metaculus.py'\\).read\\(\\)\\); print\\('syntax ok'\\)\")",
       "Bash(python -m pytest tests/test_settler.py tests/test_dashboard_service.py -x -q 2>&1 | tail -15)",
       "Bash(python -c \"from run import main; print\\('OK'\\)\" 2>&1)",
-      "Bash(cd D:/polymarket-bot && python -m pytest tests/test_dashboard_service.py tests/test_settler.py -x -q 2>&1 | tail -5)"
+      "Bash(cd D:/polymarket-bot && python -m pytest tests/test_dashboard_service.py tests/test_settler.py -x -q 2>&1 | tail -5)",
+      "Bash(cd D:/polymarket-bot && python -m pytest tests/test_settler.py -x -q 2>&1 | tail -10)"
     ]
   }
 }
