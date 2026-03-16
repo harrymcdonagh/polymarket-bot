@@ -131,3 +131,13 @@ async def test_pipeline_uses_research_pipeline(tmp_path):
 
     assert hasattr(pipeline, "research_pipeline")
     assert isinstance(pipeline.research_pipeline, ResearchPipeline)
+
+
+@pytest.mark.asyncio
+async def test_pipeline_includes_structured_sources():
+    """Verify pipeline initializes with structured pipeline."""
+    settings = Settings()
+    settings.SENTIMENT_USE_LLM = False  # disable for test
+    pipe = Pipeline(settings=settings, db_path=":memory:")
+    assert hasattr(pipe, "structured_pipeline")
+    assert len(pipe.structured_pipeline.sources) == 3  # CLOB, CoinGecko, FRED
