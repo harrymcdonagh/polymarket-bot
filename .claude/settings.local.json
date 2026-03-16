@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l /d/polymarket-bot/src/**/*.py 2>/dev/null | tail -1)",
+      "Bash(git add:*)",
+      "Bash(cd /d D:\\\\polymarket-bot && python -c \"from src.config import Settings; s = Settings\\(\\); print\\(s.DB_PATH, s.TELEGRAM_BOT_TOKEN, s.DASHBOARD_PASSWORD\\)\")",
+      "Bash(cd \"D:/polymarket-bot\" && python -c \"from src.config import Settings; s = Settings\\(\\); print\\(s.DB_PATH, s.TELEGRAM_BOT_TOKEN, s.DASHBOARD_PASSWORD\\)\")",
+      "Bash(python -m pytest tests/test_db_migration.py -v 2>&1)",
+      "Bash(which python:*)",
+      "Bash(ls /d/polymarket-bot/ && cat /d/polymarket-bot/requirements*.txt 2>/dev/null || ls /d/polymarket-bot/*.txt 2>/dev/null)",
+      "Bash(pip install:*)",
+      "Bash(python -c \"from src.config import Settings; from src.pipeline import Pipeline; p = Pipeline\\(Settings\\(\\)\\); print\\('OK'\\)\" 2>&1)",
+      "Bash(cd D:/polymarket-bot && python -m pytest tests/test_telegram.py -v 2>&1)",
+      "Bash(python -c \"from src.pipeline import Pipeline; print\\('OK'\\)\")",
+      "Bash(source venv/Scripts/activate 2>/dev/null || source venv/bin/activate 2>/dev/null; python -c \"from src.pipeline import Pipeline; print\\('OK'\\)\")",
+      "Bash(python -c \"\nimport ast, sys\nfor f in ['src/pipeline.py', 'run.py']:\n    with open\\(f\\) as fh:\n        src = fh.read\\(\\)\n    try:\n        ast.parse\\(src\\)\n        print\\(f'{f}: syntax OK'\\)\n    except SyntaxError as e:\n        print\\(f'{f}: SYNTAX ERROR {e}'\\)\n        sys.exit\\(1\\)\n\")",
+      "Bash(python -m pytest tests/test_settler.py -v 2>&1 | head -40)",
+      "Bash(python -m pytest tests/test_settler.py -v 2>&1)",
+      "Bash(python -m pytest tests/test_postmortem.py -v 2>&1 | head -20)",
+      "Bash(python -m pytest tests/test_web_auth.py -v 2>&1 | tail -20)",
+      "Bash(pip list:*)",
+      "Bash(python -m pytest tests/test_web_auth.py -v 2>&1 | tail -25)",
+      "Bash(python -m pytest tests/test_web_auth.py -v 2>&1 | tail -30)",
+      "Bash(chmod +x deploy/setup.sh && git add deploy/setup.sh && git commit -m \"feat: add server setup script for Ubuntu droplet\")",
+      "Bash(python -m pytest tests/test_db_migration.py tests/test_telegram.py tests/test_settler.py tests/test_web_auth.py -v 2>&1 | tail -30)"
+    ]
+  }
+}
