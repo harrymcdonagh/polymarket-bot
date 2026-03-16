@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from src.config import Settings
 from src.db import Database
 from src.pipeline import Pipeline
-from src.dashboard.log_handler import DashboardLogHandler
+from src.dashboard.log_handler import DashboardLogHandler, read_shared_logs
 from src.activity import read_activity
 
 try:
@@ -115,8 +115,19 @@ class DashboardService:
         return self._current_activity
 
     def get_recent_logs(self, limit: int = 50) -> list[str]:
-        logs = list(self._log_buffer)
-        return logs[-limit:]
+        # Read from shared log file (written by bot/settler processes)
+        shared = read_shared_logs(limit)
+        # Merge with any local in-memory logs from this process
+        local = list(self._log_buffer)
+        combined = shared + local
+        # Deduplicate while preserving order
+        seen = set()
+        result = []
+        for line in combined:
+            if line not in seen:
+                seen.add(line)
+                result.append(line)
+        return result[-limit:]
 
     # --- Control methods ---
 

@@ -82,7 +82,9 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
     @app.get("/api/markets")
     async def api_markets():
         markets = service.get_flagged_markets()
-        return [m.model_dump() for m in markets] if markets else []
+        if not markets:
+            return []
+        return [m.model_dump() if hasattr(m, 'model_dump') else m for m in markets]
 
     @app.get("/api/pnl-history")
     async def api_pnl_history():

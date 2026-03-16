@@ -67,6 +67,9 @@ def main():
         settler = Settler(db=db, notifier=notifier, postmortem=postmortem,
                           gamma_url=settings.POLYMARKET_GAMMA_URL)
 
+        from src.dashboard.log_handler import SharedFileLogHandler
+        logging.getLogger().addHandler(SharedFileLogHandler())
+
         interval = 3600
         for arg in sys.argv:
             if arg.startswith("--interval="):
@@ -87,6 +90,8 @@ def main():
             sys.exit(1)
 
     from src.pipeline import Pipeline
+    from src.dashboard.log_handler import SharedFileLogHandler
+    logging.getLogger().addHandler(SharedFileLogHandler())
     pipeline = Pipeline(settings=settings)
 
     if "--loop" in sys.argv:
