@@ -26,13 +26,25 @@ class Settler:
         """Check if a market has resolved. Returns 'YES'/'NO' or None if still active."""
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.get(f"{self.gamma_url}/markets/{condition_id}")
+                # Query by conditionId parameter — the URL path expects Gamma's
+                # internal ID, not the on-chain conditionId
+                resp = await client.get(
+                    f"{self.gamma_url}/markets",
+                    params={"conditionId": condition_id},
+                )
                 if resp.status_code != 200:
                     logger.warning(f"Gamma API returned {resp.status_code} for {condition_id}")
                     return None
                 # Support both sync (real httpx) and async (test mocks) .json()
                 raw = resp.json()
-                data = (await raw) if hasattr(raw, "__await__") else raw
+                results = (await raw) if hasattr(raw, "__await__") else raw
+                if isinstance(results, list):
+                    if not results:
+                        logger.debug(f"No market found for conditionId {condition_id}")
+                        return None
+                    data = results[0]
+                else:
+                    data = results
 
             if not data.get("resolved", False):
                 return None
