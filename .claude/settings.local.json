@@ -43,7 +43,16 @@
       "Bash(git commit:*)",
       "Bash(find /d/polymarket-bot -type f -name \".env*\" -o -name \"config.py\" -o -name \"settings.py\" 2>/dev/null | head -20)",
       "Bash(python -m pytest tests/ -v --tb=short 2>&1 | tail -30)",
-      "Bash(wc -l /d/polymarket-bot/src/research/*.py)"
+      "Bash(wc -l /d/polymarket-bot/src/research/*.py)",
+      "Bash(python3 << 'EOF'\n# Check current FEATURE_ORDER\nimport sys\nsys.path.insert\\(0, '/d/polymarket-bot'\\)\n\nfrom src.predictor.xgb_model import FEATURE_ORDER\nprint\\(f\"Current FEATURE_ORDER count: {len\\(FEATURE_ORDER\\)}\"\\)\nprint\\(\"Features:\"\\)\nfor i, f in enumerate\\(FEATURE_ORDER, 1\\):\n    print\\(f\"  {i:2}. {f}\"\\)\n\n# Proposed new features\nproposed_new = [\n    \"clob_bid_ask_spread\", \"clob_buy_depth\", \"clob_sell_depth\", \"clob_imbalance\", \"clob_midpoint_vs_gamma\",\n    \"crypto_price_usd\", \"crypto_24h_change\", \"crypto_market_cap_rank\", \"crypto_is_relevant\",\n    \"fred_cpi_latest\", \"fred_fed_funds_rate\", \"fred_is_relevant\"\n]\nprint\\(f\"\\\\nProposed new features: {len\\(proposed_new\\)}\"\\)\nfor i, f in enumerate\\(proposed_new, 1\\):\n    print\\(f\"  {i:2}. {f}\"\\)\n\nprint\\(f\"\\\\nTotal proposed: {len\\(FEATURE_ORDER\\) + len\\(proposed_new\\)}\"\\)\nEOF)",
+      "Bash(python -m pytest tests/test_structured_pipeline.py -v 2>&1 | tail -20)",
+      "Bash(python -m pytest tests/test_structured_pipeline.py -v 2>&1)",
+      "Bash(python -m pytest tests/test_clob.py -v 2>&1)",
+      "Bash(ls /d/polymarket-bot/.claude/worktrees/agent-a310d8d2/src/research/structured* 2>/dev/null || echo \"structured_base not found\")",
+      "Bash(python -m pytest tests/test_fred.py -v 2>&1)",
+      "Bash(python -m pytest tests/test_coingecko.py -v 2>&1)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)"
     ]
   }
 }
