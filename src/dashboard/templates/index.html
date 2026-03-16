@@ -37,14 +37,12 @@
 
             <section class="card">
                 <h2>Trade History</h2>
-                <div id="trades-table" hx-get="/api/trades" hx-trigger="load, every 10s" hx-swap="innerHTML">
-                </div>
+                <div id="trades-table"></div>
             </section>
 
             <section class="card">
                 <h2>Flagged Markets</h2>
-                <div id="markets-list" hx-get="/api/markets" hx-trigger="load, every 10s" hx-swap="innerHTML">
-                </div>
+                <div id="markets-list"></div>
             </section>
 
             <section class="card">
@@ -181,6 +179,89 @@
     }
     refreshChart();
     setInterval(refreshChart, 60000);
+
+    /* ── Pagination helper ── */
+    function renderPager(page, total, perPage, onPage) {
+        const totalPages = Math.ceil(total / perPage);
+        if (totalPages <= 1) return '';
+        let html = '<div class="pager">';
+        html += `<button class="pager-btn" ${page <= 1 ? 'disabled' : ''} onclick="${onPage}(${page - 1})">&laquo;</button>`;
+        html += `<span class="pager-info">${page} / ${totalPages}</span>`;
+        html += `<button class="pager-btn" ${page >= totalPages ? 'disabled' : ''} onclick="${onPage}(${page + 1})">&raquo;</button>`;
+        html += '</div>';
+        return html;
+    }
+
+    /* ── Trades (paginated) ── */
+    let tradesPage = 1;
+    async function loadTrades(page) {
+        tradesPage = page || tradesPage;
+        const resp = await fetch(`/api/trades?page=${tradesPage}&per_page=10`);
+        const data = await resp.json();
+        const el = document.getElementById('trades-table');
+        if (data.total === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
+        let html = '<table><tr><th>Market</th><th>Side</th><th>Amount</th><th>Status</th><th>PnL</th></tr>';
+        data.items.forEach(t => {
+            const name = esc((t.question || t.market_id || '').substring(0, 40));
+            const pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
+            const pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '\u2014';
+            const pnlStyle = pnl !== null ? (pnl >= 0 ? 'color:var(--neon)' : 'color:var(--red)') : 'color:var(--text-ghost)';
+            const sideStyle = t.side === 'YES' ? 'color:var(--neon)' : 'color:var(--red)';
+            const statusColor = t.status === 'dry_run' ? 'var(--amber)' : t.status === 'dry_run_settled' ? 'var(--blue)' : 'var(--text-dim)';
+            html += `<tr>
+                <td>${name}</td>
+                <td style="${sideStyle};font-weight:600">${esc(t.side)}</td>
+                <td>$${t.amount.toFixed(0)}</td>
+                <td style="color:${statusColor}">${esc(t.status)}</td>
+                <td style="${pnlStyle};font-weight:600">${pnlStr}</td>
+            </tr>`;
+        });
+        html += '</table>';
+        html += renderPager(data.page, data.total, data.per_page, 'loadTrades');
+        el.innerHTML = html;
+    }
+    loadTrades(1);
+    setInterval(() => loadTrades(), 10000);
+
+    /* ── Markets (paginated) ── */
+    let marketsPage = 1;
+    async function loadMarkets(page) {
+        marketsPage = page || marketsPage;
+        const resp = await fetch(`/api/markets?page=${marketsPage}&per_page=10`);
+        const data = await resp.json();
+        const el = document.getElementById('markets-list');
+        if (data.total === 0) { el.innerHTML = '<p class="muted">No flagged markets.</p>'; return; }
+        let html = '<table><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th></tr>';
+        data.items.forEach(m => {
+            const price = m.yes_price.toFixed(2);
+            const priceColor = m.yes_price > 0.7 ? 'var(--neon)' : m.yes_price < 0.3 ? 'var(--red)' : 'var(--text-secondary)';
+            let resultHtml = '';
+            if (m.trade_status) {
+                resultHtml = `<span style="color:var(--neon);font-weight:600">${esc(m.recommended_side)} $${m.trade_amount.toFixed(0)}</span>`;
+            } else if (m.approved === 0 && m.rejection_reason) {
+                const reason = m.rejection_reason.length > 25 ? m.rejection_reason.substring(0, 25) + '...' : m.rejection_reason;
+                resultHtml = `<span style="color:var(--red);font-size:0.65rem">${esc(reason)}</span>`;
+            } else if (m.recommended_side) {
+                resultHtml = `<span style="color:var(--amber)">${esc(m.recommended_side)}</span>`;
+            } else {
+                resultHtml = '<span style="color:var(--text-ghost);font-size:0.65rem">Not evaluated</span>';
+            }
+            const edgeHtml = m.edge != null
+                ? `<span style="color:var(--blue);font-weight:500">${(m.edge * 100).toFixed(1)}%</span>`
+                : '<span style="color:var(--text-ghost)">\u2014</span>';
+            html += `<tr>
+                <td>${esc((m.question||'').substring(0,40))}</td>
+                <td style="color:${priceColor};font-weight:600">${price}</td>
+                <td>${resultHtml}</td>
+                <td>${edgeHtml}</td>
+            </tr>`;
+        });
+        html += '</table>';
+        html += renderPager(data.page, data.total, data.per_page, 'loadMarkets');
+        el.innerHTML = html;
+    }
+    loadMarkets(1);
+    setInterval(() => loadMarkets(), 10000);
 
     /* ── Settings ── */
     document.getElementById('settings-form').addEventListener('change', async (e) => {
@@ -320,73 +401,7 @@
                 </div>`;
         }
 
-        /* Trades table */
-        if (evt.detail.target.id === 'trades-table') {
-            const trades = JSON.parse(evt.detail.xhr.responseText);
-            if (trades.length === 0) {
-                evt.detail.serverResponse = '<p class="muted">No trades yet.</p>';
-            } else {
-                let html = '<table><tr><th>Market</th><th>Side</th><th>Amount</th><th>Status</th><th>PnL</th></tr>';
-                trades.forEach(t => {
-                    const name = esc((t.question || t.market_id || '').substring(0, 40));
-                    const pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
-                    const pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '—';
-                    const pnlStyle = pnl !== null ? (pnl >= 0 ? 'color:var(--neon)' : 'color:var(--red)') : 'color:var(--text-ghost)';
-                    const sideStyle = t.side === 'YES' ? 'color:var(--neon)' : 'color:var(--red)';
-                    const statusColor = t.status === 'dry_run' ? 'var(--amber)' : t.status === 'dry_run_settled' ? 'var(--blue)' : 'var(--text-dim)';
-                    html += `<tr>
-                        <td>${name}</td>
-                        <td style="${sideStyle};font-weight:600">${esc(t.side)}</td>
-                        <td>$${t.amount.toFixed(0)}</td>
-                        <td style="color:${statusColor}">${esc(t.status)}</td>
-                        <td style="${pnlStyle};font-weight:600">${pnlStr}</td>
-                    </tr>`;
-                });
-                evt.detail.serverResponse = html + '</table>';
-            }
-        }
-
-        /* Markets list */
-        if (evt.detail.target.id === 'markets-list') {
-            const markets = JSON.parse(evt.detail.xhr.responseText);
-            if (markets.length === 0) {
-                evt.detail.serverResponse = '<p class="muted">No flagged markets.</p>';
-            } else {
-                let html = '<table><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th></tr>';
-                markets.forEach(m => {
-                    const price = m.yes_price.toFixed(2);
-                    const priceColor = m.yes_price > 0.7 ? 'var(--neon)' : m.yes_price < 0.3 ? 'var(--red)' : 'var(--text-secondary)';
-
-                    let resultHtml = '';
-                    if (m.trade_status) {
-                        // Was traded
-                        resultHtml = `<span style="color:var(--neon);font-weight:600">${esc(m.recommended_side)} $${m.trade_amount.toFixed(0)}</span>`;
-                    } else if (m.approved === 0 && m.rejection_reason) {
-                        // Evaluated but blocked
-                        const reason = m.rejection_reason.length > 25 ? m.rejection_reason.substring(0, 25) + '...' : m.rejection_reason;
-                        resultHtml = `<span style="color:var(--red);font-size:0.65rem">${esc(reason)}</span>`;
-                    } else if (m.recommended_side) {
-                        // Evaluated, approved but not traded (shouldn't happen normally)
-                        resultHtml = `<span style="color:var(--amber)">${esc(m.recommended_side)}</span>`;
-                    } else {
-                        // Not evaluated
-                        resultHtml = '<span style="color:var(--text-ghost);font-size:0.65rem">Not evaluated</span>';
-                    }
-
-                    const edgeHtml = m.edge != null
-                        ? `<span style="color:var(--blue);font-weight:500">${(m.edge * 100).toFixed(1)}%</span>`
-                        : '<span style="color:var(--text-ghost)">—</span>';
-
-                    html += `<tr>
-                        <td>${esc((m.question||'').substring(0,40))}</td>
-                        <td style="color:${priceColor};font-weight:600">${price}</td>
-                        <td>${resultHtml}</td>
-                        <td>${edgeHtml}</td>
-                    </tr>`;
-                });
-                evt.detail.serverResponse = html + '</table>';
-            }
-        }
+        /* Trades and Markets are now rendered by their own fetch loops — skip htmx */
 
         /* Log feed — with colored levels */
         if (evt.detail.target.id === 'log-feed') {

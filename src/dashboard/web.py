@@ -76,15 +76,21 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
         return await asyncio.to_thread(service.get_stats)
 
     @app.get("/api/trades")
-    async def api_trades():
-        return await asyncio.to_thread(service.get_recent_trades)
+    async def api_trades(page: int = 1, per_page: int = 10):
+        all_trades = await asyncio.to_thread(service.get_recent_trades, 200)
+        total = len(all_trades)
+        start = (page - 1) * per_page
+        return {"items": all_trades[start:start + per_page], "total": total, "page": page, "per_page": per_page}
 
     @app.get("/api/markets")
-    async def api_markets():
+    async def api_markets(page: int = 1, per_page: int = 10):
         markets = service.get_flagged_markets()
         if not markets:
-            return []
-        return [m.model_dump() if hasattr(m, 'model_dump') else m for m in markets]
+            return {"items": [], "total": 0, "page": page, "per_page": per_page}
+        all_items = [m.model_dump() if hasattr(m, 'model_dump') else m for m in markets]
+        total = len(all_items)
+        start = (page - 1) * per_page
+        return {"items": all_items[start:start + per_page], "total": total, "page": page, "per_page": per_page}
 
     @app.get("/api/pnl-history")
     async def api_pnl_history():
