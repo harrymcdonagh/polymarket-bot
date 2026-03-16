@@ -57,6 +57,7 @@ A `ResearchSource` adapter that fetches PredictIt market prices and fuzzy-matche
 - **Availability:** Always (no key needed)
 - **Matching:** Compare PredictIt market names against Polymarket question using `SequenceMatcher`. Threshold: 0.5 similarity. Return top 3 matches.
 - **Note:** PredictIt covers US politics heavily but not crypto. Source naturally activates for political markets.
+- **Risk:** PredictIt shut down markets in 2023 after losing its CFTC no-action letter. The API may return stale or empty data. Implementation must handle empty/error responses gracefully. If the API is confirmed dead at implementation time, substitute with Manifold Markets API (`GET https://api.manifold.markets/v0/search-markets?term={query}`) which has the same structure (free, no auth, returns market probabilities).
 
 ### Wikipedia Current Events (`src/research/wikipedia.py`)
 
@@ -183,7 +184,11 @@ Score: -1.0 (strongly suggests NO) to 1.0 (strongly suggests YES). Label: positi
 Return ONLY valid JSON.
 ```
 
-**Key change:** `analyze_batch()` now accepts an optional `market_question: str` parameter so Haiku can contextualize sentiment relative to the market. When `market_question` is None, falls back to pure VADER (no LLM calls).
+**Key change:** `analyze_batch()` now accepts an optional `market_question: str` parameter so Haiku can contextualize sentiment relative to the market. When `market_question` is None, falls back to pure VADER (no LLM calls). Return type remains `list[dict]` with the same `{"label": str, "score": float}` shape.
+
+**Caller change:** `ResearchPipeline.search_and_analyze(query)` passes `query` as `market_question` to `analyze_batch(texts, market_question=query)`. Since `query` is already `market.question` (set in `pipeline.py`), no signature change to `search_and_analyze` is needed.
+
+**RoBERTa removal:** The `use_transformer` code path and `transformers` dependency are removed entirely. Remove `transformers` and `torch` from `requirements.txt` if no other module uses them.
 
 **Config additions:**
 - `SENTIMENT_MODEL: str = "claude-haiku-4-5-20251001"` (separate from NARRATIVE_MODEL — allows independent tuning)
@@ -259,11 +264,16 @@ SENTIMENT_MODEL: str = "claude-haiku-4-5-20251001"
 SENTIMENT_USE_LLM: bool = True
 SENTIMENT_LLM_THRESHOLD: float = 0.4
 
+# FRED API
+FRED_API_KEY: str = ""
+
 # Source weights for new text sources
 SOURCE_WEIGHT_METACULUS: float = 0.9
 SOURCE_WEIGHT_PREDICTIT: float = 0.85
 SOURCE_WEIGHT_WIKIPEDIA: float = 0.7
 ```
+
+Add the three new source weight fields to the existing `weight_range` `@field_validator` list in config.py.
 
 ## Files Changed
 
@@ -279,8 +289,8 @@ SOURCE_WEIGHT_WIKIPEDIA: float = 0.7
 
 **Modified files (6):**
 - `src/research/sentiment.py` — Haiku for ambiguous, VADER fallback
-- `src/predictor/features.py` — structured_data param, 12 new features
-- `src/predictor/xgb_model.py` — FEATURE_ORDER 20→32
+- `src/predictor/features.py` — structured_data param, 13 new features
+- `src/predictor/xgb_model.py` — FEATURE_ORDER 20→33
 - `src/predictor/trainer.py` — new feature defaults
 - `src/pipeline.py` — wire up new sources + structured pipeline
 - `src/config.py` — new settings
