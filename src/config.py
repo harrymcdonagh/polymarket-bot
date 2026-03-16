@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOOP_INTERVAL: int = 300
 
+    # Database
+    DB_PATH: str = "data/polymarket.db"
+
+    # Telegram notifications
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+
+    # Dashboard security
+    DASHBOARD_PASSWORD: str = ""
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @field_validator("BANKROLL")
