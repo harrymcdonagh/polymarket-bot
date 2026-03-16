@@ -100,12 +100,14 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
 
     @app.get("/api/activity", response_class=HTMLResponse)
     async def api_activity():
+        from datetime import datetime, timezone
         a = service.get_activity()
         stage = a.get("stage", "idle")
         detail = a.get("detail", "")
+        updated_at = a.get("updated_at")
 
         labels = {
-            "idle": "Idle — Waiting",
+            "idle": "Idle",
             "checking": "Step 0: Checking Open Trades",
             "scanning": "Step 1: Scanning Markets",
             "researching": "Step 2: Researching",
@@ -118,9 +120,25 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
         dot_cls = "activity-dot active" if is_active else "activity-dot"
 
         detail_html = ""
-        if detail:
+        if is_active and detail:
             from html import escape
             detail_html = f'<span class="activity-detail">{escape(detail)}</span>'
+        elif stage == "idle" and updated_at:
+            # Show time since last activity update
+            try:
+                last = datetime.fromisoformat(updated_at)
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                ago = (datetime.now(timezone.utc) - last).total_seconds()
+                if ago < 120:
+                    ago_str = f"{int(ago)}s ago"
+                elif ago < 7200:
+                    ago_str = f"{int(ago / 60)}m ago"
+                else:
+                    ago_str = f"{int(ago / 3600)}h ago"
+                detail_html = f'<span class="activity-detail">Last cycle {ago_str}</span>'
+            except (ValueError, TypeError):
+                pass
 
         return HTMLResponse(
             f'<div class="{dot_cls}"></div>'

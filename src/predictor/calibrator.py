@@ -85,14 +85,14 @@ class Calibrator:
         predicted_prob = 0.4 * xgb_probability + 0.6 * llm_probability
 
         # Determine side and edge
-        yes_edge = predicted_prob - market.yes_price
-        no_edge = (1 - predicted_prob) - market.no_price
-        if yes_edge > no_edge:
+        # Compare predicted probability directly against market YES price.
+        # If we think true prob > market price, bet YES; otherwise bet NO.
+        if predicted_prob > market.yes_price:
             side = "YES"
-            edge = yes_edge
+            edge = predicted_prob - market.yes_price
         else:
             side = "NO"
-            edge = no_edge
+            edge = market.yes_price - predicted_prob
 
         # Confidence based on agreement between models and edge size
         model_agreement = 1.0 - abs(xgb_probability - llm_probability)
