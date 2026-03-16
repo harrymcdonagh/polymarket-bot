@@ -224,20 +224,20 @@
             const todaySign = s.today_pnl >= 0 ? '+' : '';
             evt.detail.serverResponse = `
                 <div class="stat-card">
+                    <div class="stat-value">${s.total_trades}</div>
+                    <div class="stat-label">Total Trades</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${s.dry_run_pending || 0}</div>
+                    <div class="stat-label">Pending Dry-Run</div>
+                </div>
+                <div class="stat-card">
                     <div class="stat-value">${(s.win_rate*100).toFixed(0)}%</div>
-                    <div class="stat-label">Win Rate (${s.wins}/${s.total_trades})</div>
+                    <div class="stat-label">Win Rate (${s.wins}/${s.settled_trades || 0})</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-value" style="color:${pnlColor}">${pnlSign}$${Math.abs(s.total_pnl).toFixed(2)}</div>
-                    <div class="stat-label">Total PnL</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" style="color:${todayColor}">${todaySign}$${Math.abs(s.today_pnl).toFixed(2)}</div>
-                    <div class="stat-label">Today</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${s.open_trades}</div>
-                    <div class="stat-label">Open Trades</div>
+                    <div class="stat-label">Hypothetical PnL</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-value">${s.snapshot_count}</div>
@@ -254,7 +254,7 @@
                 let html = '<table><tr><th>Market</th><th>Side</th><th>Amount</th><th>Status</th><th>PnL</th></tr>';
                 trades.forEach(t => {
                     const name = esc((t.question || t.market_id || '').substring(0, 35));
-                    const pnl = t.pnl != null ? t.pnl : null;
+                    const pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
                     const pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '—';
                     const pnlStyle = pnl !== null ? (pnl >= 0 ? 'color:var(--neon)' : 'color:var(--coral)') : 'color:var(--text-ghost)';
                     const sideStyle = t.side === 'YES' ? 'color:var(--neon)' : 'color:var(--coral)';
@@ -278,7 +278,8 @@
             } else {
                 let html = '<table><tr><th>Market</th><th>YES</th><th>Flags</th></tr>';
                 markets.forEach(m => {
-                    const flags = esc((m.flags || []).join(', ') || '—');
+                    const rawFlags = m.flags || [];
+                    const flags = esc(Array.isArray(rawFlags) ? rawFlags.join(', ') : rawFlags) || '—';
                     const price = m.yes_price.toFixed(2);
                     const priceColor = m.yes_price > 0.7 ? 'var(--neon)' : m.yes_price < 0.3 ? 'var(--coral)' : 'var(--text-dim)';
                     html += `<tr>
