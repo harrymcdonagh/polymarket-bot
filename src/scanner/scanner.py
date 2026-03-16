@@ -34,6 +34,10 @@ class MarketScanner:
             if len(prices) < 2 or len(token_ids) < 2:
                 continue
 
+            if not market.get("question", "").strip():
+                logger.debug(f"Skipping market with empty question: {market.get('conditionId', 'unknown')}")
+                continue
+
             yes_price = float(prices[0])
             no_price = float(prices[1])
             spread = abs(1.0 - yes_price - no_price)
@@ -48,7 +52,7 @@ class MarketScanner:
                     end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
                     if end_date.tzinfo is None:
                         end_date = end_date.replace(tzinfo=timezone.utc)
-                    days_to_res = (end_date - datetime.now(timezone.utc)).days
+                    days_to_res = max(0, (end_date - datetime.now(timezone.utc)).days)
                 except (ValueError, TypeError):
                     pass
 

@@ -88,3 +88,84 @@ async def test_run_settles_resolved_trades(settler, tmp_db):
 
     trades = tmp_db.get_unresolved_dry_run_trades()
     assert len(trades) == 0
+
+
+@pytest.mark.asyncio
+async def test_run_saves_trade_metrics(settler, tmp_db):
+    tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
+    tmp_db.save_prediction(
+        market_id="cond-1", question="Test?", market_yes_price=0.5,
+        predicted_prob=0.7, xgb_prob=0.6, llm_prob=0.75,
+        edge=0.10, confidence=0.8, recommended_side="YES",
+        approved=True, bet_size=5.0,
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "closed": True, "resolved": True, "outcomePrices": "[\"1\",\"0\"]"
+    }
+
+    with patch("httpx.AsyncClient.get", return_value=mock_response):
+        await settler.run()
+
+    conn = tmp_db._conn()
+    metric = conn.execute("SELECT * FROM trade_metrics WHERE trade_id = 1").fetchone()
+    assert metric is not None
+    assert metric["was_correct"] == 1
+    assert metric["actual_outcome"] == "YES"
+    assert metric["edge_at_entry"] == 0.10
+
+
+@pytest.mark.asyncio
+async def test_postmortem_skipped_for_low_edge_wrong(settler, tmp_db):
+    """Postmortem should NOT run when edge < 5% even if wrong."""
+    tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
+    tmp_db.save_prediction(
+        market_id="cond-1", question="Test?", market_yes_price=0.5,
+        predicted_prob=0.52, xgb_prob=0.5, llm_prob=0.53,
+        edge=0.02, confidence=0.3, recommended_side="YES",
+        approved=True, bet_size=5.0,
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "closed": True, "resolved": True, "outcomePrices": "[\"0\",\"1\"]"
+    }
+
+    mock_postmortem = AsyncMock()
+    mock_postmortem.analyze_loss = AsyncMock(return_value={})
+    settler.postmortem = mock_postmortem
+
+    with patch("httpx.AsyncClient.get", return_value=mock_response):
+        await settler.run()
+
+    mock_postmortem.analyze_loss.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_postmortem_runs_for_high_edge_wrong(settler, tmp_db):
+    """Postmortem SHOULD run when edge > 5% and wrong."""
+    tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
+    tmp_db.save_prediction(
+        market_id="cond-1", question="Test?", market_yes_price=0.5,
+        predicted_prob=0.7, xgb_prob=0.6, llm_prob=0.75,
+        edge=0.15, confidence=0.8, recommended_side="YES",
+        approved=True, bet_size=5.0,
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "closed": True, "resolved": True, "outcomePrices": "[\"0\",\"1\"]"
+    }
+
+    mock_postmortem = AsyncMock()
+    mock_postmortem.analyze_loss = AsyncMock(return_value={})
+    settler.postmortem = mock_postmortem
+
+    with patch("httpx.AsyncClient.get", return_value=mock_response):
+        await settler.run()
+
+    mock_postmortem.analyze_loss.assert_called_once()

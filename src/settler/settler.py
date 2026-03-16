@@ -41,7 +41,13 @@ class Settler:
             prices = json.loads(prices_str)
             if len(prices) >= 2:
                 yes_price = float(prices[0])
-                return "YES" if yes_price > 0.5 else "NO"
+                if yes_price > 0.5:
+                    return "YES"
+                elif yes_price < 0.5:
+                    return "NO"
+                else:
+                    logger.warning(f"Market {condition_id} resolved with ambiguous 0.5 price, skipping")
+                    return None
             return None
         except Exception as e:
             logger.warning(f"Resolution check failed for {condition_id}: {e}")
@@ -83,6 +89,12 @@ class Settler:
             if outcome is None:
                 continue
 
+            # Resolve human-readable question
+            question = trade["market_id"]
+            snapshot_question = self.db.get_market_question(trade["market_id"])
+            if snapshot_question:
+                question = snapshot_question
+
             pnl = self.calc_hypothetical_pnl(
                 side=trade["side"],
                 amount=trade["amount"],
@@ -96,28 +108,45 @@ class Settler:
                 hypothetical_pnl=pnl,
             )
 
+            # Save rule-based metrics
+            was_correct = (trade["side"] == outcome)
+            pred = self.db.get_prediction_for_market(trade["market_id"])
+            self.db.save_trade_metric(
+                trade_id=trade["id"],
+                market_id=trade["market_id"],
+                predicted_prob=trade.get("predicted_prob"),
+                actual_outcome=outcome,
+                predicted_side=trade["side"],
+                was_correct=was_correct,
+                edge_at_entry=pred.get("edge") if pred else None,
+                confidence_at_entry=pred.get("confidence") if pred else None,
+                hypothetical_pnl=pnl,
+                market_yes_price=trade["price"],
+            )
+
             logger.info(
-                f"Settled: {trade['market_id'][:20]} -> {outcome} | "
+                f"Settled: {question[:60]} -> {outcome} | "
                 f"Hypothetical P&L: ${pnl:.2f}"
             )
 
-            # Run postmortem on losses
-            if pnl < 0 and self.postmortem:
-                try:
-                    await self.postmortem.analyze_loss(
-                        question=trade["market_id"],
-                        predicted_prob=trade.get("predicted_prob", 0.5),
-                        actual_outcome=outcome,
-                        pnl=pnl,
-                        reasoning="Dry-run trade — see trade history",
-                    )
-                except Exception as e:
-                    logger.error(f"Postmortem failed for trade {trade['id']}: {e}")
+            # LLM postmortem only on high-confidence wrong predictions
+            if not was_correct:
+                if pred and abs(pred.get("edge", 0)) > 0.05 and self.postmortem:
+                    try:
+                        await self.postmortem.analyze_loss(
+                            question=question,
+                            predicted_prob=trade.get("predicted_prob", 0.5),
+                            actual_outcome=outcome,
+                            pnl=pnl,
+                            reasoning=f"Edge was {pred['edge']:.2%}, confidence {pred['confidence']:.2f}",
+                        )
+                    except Exception as e:
+                        logger.error(f"Postmortem failed for trade {trade['id']}: {e}")
 
             # Notify
             if self.notifier.is_enabled:
                 msg = self.notifier.format_settlement_alert(
-                    question=trade["market_id"],
+                    question=question,
                     outcome=outcome,
                     predicted_prob=trade.get("predicted_prob", 0.5),
                     price=trade["price"],

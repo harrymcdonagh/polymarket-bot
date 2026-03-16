@@ -66,12 +66,27 @@ class PostmortemAnalyzer:
 
         try:
             response = self.client.messages.create(
-                model="claude-sonnet-4-6",
+                model=self.settings.POSTMORTEM_MODEL,
                 max_tokens=1000,
                 messages=[{"role": "user", "content": prompt}],
             )
             text = response.content[0].text.strip()
-            report = json.loads(text)
+            try:
+                report = json.loads(text)
+            except json.JSONDecodeError:
+                # Try to extract JSON from mixed text response
+                import re
+                json_match = re.search(r'\{.*\}', text, re.DOTALL)
+                if json_match:
+                    report = json.loads(json_match.group())
+                else:
+                    logger.error(f"Postmortem returned non-JSON: {text[:200]}")
+                    report = {
+                        "failure_reasons": ["LLM returned non-JSON response"],
+                        "lessons": [f"Raw LLM response: {text[:300]}"],
+                        "system_updates": [],
+                        "category": "unknown",
+                    }
         except Exception as e:
             logger.error(f"Postmortem analysis failed: {e}")
             report = {

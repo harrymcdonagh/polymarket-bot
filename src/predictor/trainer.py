@@ -4,6 +4,7 @@ import logging
 import math
 import httpx
 from src.predictor.xgb_model import PredictionModel, FEATURE_ORDER
+from src.db import Database
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +67,6 @@ def market_to_features(market: dict) -> dict | None:
         # to give the model varied price inputs rather than a constant.
         import random
         base_rate = 0.5
-        # Add noise centered on base rate — the model learns which
-        # market characteristics (volume, liquidity, spread) predict outcomes
         simulated_yes = base_rate + random.gauss(0, 0.15)
         simulated_yes = max(0.05, min(0.95, simulated_yes))
 
@@ -101,8 +100,47 @@ def market_to_features(market: dict) -> dict | None:
         return None
 
 
-async def train_from_history(model_path: str = "model_xgb.json") -> PredictionModel:
-    """Fetch resolved markets and train an XGBoost model."""
+async def train_from_history(db_path: str = "data/polymarket.db",
+                             model_path: str = "model_xgb.json") -> PredictionModel:
+    """Train XGB model on real settled trade data, fall back to Gamma API."""
+    db = Database(db_path)
+    db.init()
+
+    conn = db._conn()
+    rows = conn.execute("""
+        SELECT p.features_json, p.market_yes_price, p.predicted_prob,
+               t.resolved_outcome, t.side
+        FROM predictions p
+        JOIN trades t ON p.market_id = t.market_id
+        WHERE t.status IN ('settled', 'dry_run_settled')
+        AND t.resolved_outcome IS NOT NULL
+        AND p.features_json IS NOT NULL
+    """).fetchall()
+
+    if len(rows) >= 10:
+        logger.info(f"Training on {len(rows)} real settled trades")
+        feature_dicts = []
+        labels = []
+        for row in rows:
+            features = json.loads(row["features_json"])
+            label = 1 if row["resolved_outcome"] == "YES" else 0
+            feature_dicts.append(features)
+            labels.append(label)
+
+        model = PredictionModel()
+        model.train(feature_dicts, labels)
+        model.save(model_path)
+        logger.info(f"Model trained on {len(labels)} real trades, saved to {model_path}")
+        db.close()
+        return model
+
+    logger.warning(f"Only {len(rows)} real trades with features — falling back to Gamma API")
+    db.close()
+    return await _train_from_gamma_api(model_path)
+
+
+async def _train_from_gamma_api(model_path: str = "model_xgb.json") -> PredictionModel:
+    """Original training from Gamma API resolved markets."""
     markets = await fetch_resolved_markets(limit=2000)
 
     samples = []
@@ -112,24 +150,21 @@ async def train_from_history(model_path: str = "model_xgb.json") -> PredictionMo
             samples.append(result)
 
     if len(samples) < 50:
-        logger.warning(f"Only {len(samples)} usable samples, need at least 50")
+        logger.warning(f"Only {len(samples)} usable Gamma API samples, need at least 50")
         return PredictionModel()
 
-    # Sort by volume and take top samples for quality
     samples.sort(key=lambda s: s["volume"], reverse=True)
-
     features = [s["features"] for s in samples]
     labels = [s["label"] for s in samples]
 
     yes_count = sum(labels)
     no_count = len(labels) - yes_count
-    logger.info(f"Training on {len(samples)} markets (YES: {yes_count}, NO: {no_count})")
+    logger.info(f"Training on {len(samples)} Gamma markets (YES: {yes_count}, NO: {no_count})")
 
     model = PredictionModel()
     model.train(features, labels)
     model.save(model_path)
     logger.info(f"Model saved to {model_path}")
-
     return model
 
 

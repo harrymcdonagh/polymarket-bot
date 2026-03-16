@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 from src.config import Settings
@@ -255,6 +256,7 @@ class Pipeline:
                     approved=decision.approved,
                     rejection_reason=decision.rejection_reason,
                     bet_size=decision.bet_size_usd,
+                    features_json=json.dumps(features),
                 )
 
                 if not decision.approved:
@@ -353,7 +355,7 @@ class Pipeline:
             import anthropic
             client = anthropic.Anthropic(api_key=self.settings.ANTHROPIC_API_KEY)
             response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=self.settings.NARRATIVE_MODEL,
                 max_tokens=300,
                 messages=[{"role": "user", "content": (
                     f"Summarize the public sentiment and narrative for this prediction market in 2-3 sentences:\n"

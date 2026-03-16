@@ -1,6 +1,7 @@
 import json
 import os
 import logging
+import tempfile
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -9,17 +10,29 @@ ACTIVITY_FILE = "data/activity.json"
 
 
 def write_activity(stage: str, detail: str = "", base_dir: str = ""):
-    """Write current activity to a shared JSON file."""
+    """Write current activity to a shared JSON file (atomic via temp+rename)."""
     path = os.path.join(base_dir, ACTIVITY_FILE) if base_dir else ACTIVITY_FILE
     try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        dir_path = os.path.dirname(path) or "."
+        os.makedirs(dir_path, exist_ok=True)
         data = {
             "stage": stage,
             "detail": detail,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
-        with open(path, "w") as f:
-            json.dump(data, f)
+        # Atomic write: write to temp file in same dir, then replace
+        fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f)
+            os.replace(tmp_path, path)
+        except Exception:
+            # Clean up temp file on failure
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
     except Exception as e:
         logger.debug(f"Failed to write activity: {e}")
 

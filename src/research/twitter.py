@@ -47,9 +47,23 @@ class TwitterSource(ResearchSource):
             if self._api is None:
                 self._api = API()
             self._researcher = TwitterResearcher(api=self._api)
-            self._checked_available = True
+            # Verify we actually have pool accounts by checking the pool
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                # If we're in an event loop, defer the check to search time
+                self._checked_available = True
+            except RuntimeError:
+                # No running loop — can do sync check
+                pool = asyncio.run(self._api.pool.get_all())
+                if not pool:
+                    logger.warning("Twitter: no accounts in twscrape pool — source disabled")
+                    self._checked_available = False
+                    return False
+                self._checked_available = True
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Twitter source unavailable: {e}")
             self._checked_available = False
             return False
 

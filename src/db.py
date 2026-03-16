@@ -95,8 +95,28 @@ class Database:
                 approved INTEGER DEFAULT 0,
                 rejection_reason TEXT,
                 bet_size REAL,
+                features_json TEXT,
                 predicted_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS trade_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id INTEGER REFERENCES trades(id),
+                market_id TEXT NOT NULL,
+                predicted_prob REAL,
+                actual_outcome TEXT,
+                predicted_side TEXT,
+                was_correct INTEGER,
+                edge_at_entry REAL,
+                confidence_at_entry REAL,
+                hypothetical_pnl REAL,
+                market_yes_price REAL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_lessons_category ON lessons(category);
+            CREATE INDEX IF NOT EXISTS idx_trades_market_id ON trades(market_id);
+            CREATE INDEX IF NOT EXISTS idx_predictions_market_id ON predictions(market_id);
+            CREATE INDEX IF NOT EXISTS idx_trade_metrics_trade_id ON trade_metrics(trade_id);
+            CREATE INDEX IF NOT EXISTS idx_market_snapshots_condition_id ON market_snapshots(condition_id);
         """)
         conn.commit()
         self.migrate()
@@ -114,6 +134,10 @@ class Database:
         for col_name, col_type in migrations:
             if col_name not in existing:
                 conn.execute(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}")
+        # Migrate predictions table
+        pred_cols = {row[1] for row in conn.execute("PRAGMA table_info(predictions)").fetchall()}
+        if "features_json" not in pred_cols:
+            conn.execute("ALTER TABLE predictions ADD COLUMN features_json TEXT")
         conn.commit()
 
     def save_trade(self, market_id: str, side: str, amount: float, price: float,
@@ -146,7 +170,21 @@ class Database:
     def get_losing_trades(self, limit: int = 10) -> list[dict]:
         conn = self._conn()
         rows = conn.execute(
-            "SELECT * FROM trades WHERE status = 'settled' AND pnl < 0 ORDER BY settled_at DESC LIMIT ?",
+            """SELECT * FROM trades
+               WHERE status IN ('settled', 'dry_run_settled')
+               AND (pnl < 0 OR hypothetical_pnl < 0)
+               ORDER BY COALESCE(settled_at, resolved_at) DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_all_settled_trades(self, limit: int = 50) -> list[dict]:
+        """All settled trades (wins and losses, real and dry-run)."""
+        conn = self._conn()
+        rows = conn.execute(
+            """SELECT * FROM trades
+               WHERE status IN ('settled', 'dry_run_settled')
+               ORDER BY COALESCE(settled_at, resolved_at) DESC LIMIT ?""",
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -167,32 +205,34 @@ class Database:
             rows = conn.execute("SELECT * FROM lessons").fetchall()
         return [dict(r) for r in rows]
 
-    def save_market_snapshots_batch(self, markets) -> None:
+    def save_market_snapshots_batch(self, markets) -> int:
         """Persist a batch of ScannedMarket objects to market_snapshots."""
         conn = self._conn()
         now = datetime.now(timezone.utc).isoformat()
+        rows = [
+            (
+                m.condition_id,
+                m.question,
+                m.yes_price,
+                m.no_price,
+                m.spread,
+                m.liquidity,
+                m.volume_24h,
+                m.days_to_resolution,
+                ",".join(str(f) for f in m.flags) if m.flags else "",
+                m.scanned_at.isoformat() if m.scanned_at else now,
+            )
+            for m in markets
+        ]
         conn.executemany(
             """INSERT INTO market_snapshots
                (condition_id, question, yes_price, no_price, spread, liquidity,
                 volume_24h, days_to_resolution, flags, snapshot_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            [
-                (
-                    m.condition_id,
-                    m.question,
-                    m.yes_price,
-                    m.no_price,
-                    m.spread,
-                    m.liquidity,
-                    m.volume_24h,
-                    m.days_to_resolution,
-                    ",".join(str(f) for f in m.flags) if m.flags else "",
-                    m.scanned_at.isoformat() if m.scanned_at else now,
-                )
-                for m in markets
-            ],
+            rows,
         )
         conn.commit()
+        return len(rows)
 
     def get_pnl_history(self) -> list[dict]:
         """Daily PnL series with cumulative totals for charting."""
@@ -273,16 +313,16 @@ class Database:
                         predicted_prob: float, xgb_prob: float, llm_prob: float,
                         edge: float, confidence: float, recommended_side: str,
                         approved: bool, rejection_reason: str | None = None,
-                        bet_size: float = 0):
+                        bet_size: float = 0, features_json: str | None = None):
         conn = self._conn()
         conn.execute(
             """INSERT INTO predictions
                (market_id, question, market_yes_price, predicted_prob, xgb_prob, llm_prob,
-                edge, confidence, recommended_side, approved, rejection_reason, bet_size)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                edge, confidence, recommended_side, approved, rejection_reason, bet_size, features_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (market_id, question, market_yes_price, predicted_prob, xgb_prob, llm_prob,
              edge, confidence, recommended_side, 1 if approved else 0,
-             rejection_reason, bet_size),
+             rejection_reason, bet_size, features_json),
         )
         conn.commit()
 
@@ -389,3 +429,35 @@ class Database:
             "SELECT COUNT(*) as n FROM trades WHERE status IN ('dry_run', 'dry_run_settled')"
         ).fetchone()
         return row["n"]
+
+    def save_trade_metric(self, trade_id: int, market_id: str, predicted_prob: float | None,
+                          actual_outcome: str, predicted_side: str, was_correct: bool,
+                          edge_at_entry: float | None, confidence_at_entry: float | None,
+                          hypothetical_pnl: float, market_yes_price: float):
+        conn = self._conn()
+        conn.execute(
+            """INSERT INTO trade_metrics
+               (trade_id, market_id, predicted_prob, actual_outcome, predicted_side,
+                was_correct, edge_at_entry, confidence_at_entry, hypothetical_pnl, market_yes_price)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (trade_id, market_id, predicted_prob, actual_outcome, predicted_side,
+             1 if was_correct else 0, edge_at_entry, confidence_at_entry,
+             hypothetical_pnl, market_yes_price),
+        )
+        conn.commit()
+
+    def get_prediction_for_market(self, market_id: str) -> dict | None:
+        conn = self._conn()
+        row = conn.execute(
+            "SELECT * FROM predictions WHERE market_id = ? ORDER BY predicted_at DESC LIMIT 1",
+            (market_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_market_question(self, condition_id: str) -> str | None:
+        conn = self._conn()
+        row = conn.execute(
+            "SELECT question FROM market_snapshots WHERE condition_id = ? ORDER BY snapshot_at DESC LIMIT 1",
+            (condition_id,),
+        ).fetchone()
+        return row["question"] if row else None

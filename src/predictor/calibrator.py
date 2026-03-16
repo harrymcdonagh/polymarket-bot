@@ -65,9 +65,10 @@ class Calibrator:
             sentiment_summary=sentiment_summary,
         )
 
+        llm_failed = False
         try:
             response = self.client.messages.create(
-                model="claude-sonnet-4-6",
+                model=self.settings.CALIBRATION_MODEL,
                 max_tokens=500,
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -77,9 +78,10 @@ class Calibrator:
             llm_probability = max(0.01, min(0.99, float(data["probability"])))
             reasoning = data.get("reasoning", "")
         except Exception as e:
-            logger.warning(f"LLM calibration failed: {e}, falling back")
+            logger.error(f"LLM calibration failed: {e} — prediction will have reduced confidence")
             llm_probability = xgb_probability if xgb_probability is not None else market.yes_price
             reasoning = f"LLM calibration failed ({e}), using fallback estimate"
+            llm_failed = True
 
         # Combine predictions: if XGB is trained, blend 40/60; otherwise LLM only
         if xgb_probability is not None:
@@ -88,6 +90,10 @@ class Calibrator:
         else:
             predicted_prob = llm_probability
             model_agreement = 0.5  # moderate confidence without XGB cross-check
+
+        # Reduce confidence when LLM failed — likely to be blocked by risk manager
+        if llm_failed:
+            model_agreement = 0.1
 
         # Determine side and edge
         # Compare predicted probability directly against market YES price.

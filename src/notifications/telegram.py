@@ -10,6 +10,7 @@ class TelegramNotifier:
     def __init__(self, bot_token: str, chat_id: str):
         self.bot_token = bot_token
         self.chat_id = chat_id
+        self._consecutive_failures: int = 0
 
     @property
     def is_enabled(self) -> bool:
@@ -27,9 +28,19 @@ class TelegramNotifier:
                     "parse_mode": "Markdown",
                 })
                 if resp.status_code != 200:
-                    logger.warning(f"Telegram send failed: {resp.status_code} {resp.text}")
+                    self._consecutive_failures += 1
+                    if self._consecutive_failures >= 3:
+                        logger.error(f"Telegram send failed {self._consecutive_failures} times in a row (status {resp.status_code}). Check bot token and chat ID.")
+                    else:
+                        logger.warning(f"Telegram send failed: {resp.status_code} {resp.text}")
+                else:
+                    self._consecutive_failures = 0
         except Exception as e:
-            logger.warning(f"Telegram send error: {e}")
+            self._consecutive_failures += 1
+            if self._consecutive_failures >= 3:
+                logger.error(f"Telegram send failed {self._consecutive_failures} times: {e}. Check network and bot config.")
+            else:
+                logger.warning(f"Telegram send error: {e}")
 
     def format_trade_alert(self, question: str, side: str, amount: float,
                            price: float, edge: float) -> str:

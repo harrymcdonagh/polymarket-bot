@@ -65,7 +65,10 @@ class ResearchPipeline:
             all_results.extend(result)
 
         deduped = deduplicate(all_results, threshold=0.9)
-        logger.info(f"Research: {len(all_results)} results from {len(available)} sources, {len(deduped)} after dedup")
+        if not all_results and available:
+            logger.error(f"All {len(available)} research sources returned zero results for '{query[:60]}' — predictions will lack sentiment data")
+        else:
+            logger.info(f"Research: {len(all_results)} results from {len(available)} sources, {len(deduped)} after dedup")
         return deduped
 
     async def search_and_analyze(self, query: str) -> dict:

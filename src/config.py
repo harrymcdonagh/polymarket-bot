@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     SOURCE_WEIGHT_REDDIT: float = 0.6
     RESEARCH_TIMEOUT: int = 10
 
+    # LLM model names
+    CALIBRATION_MODEL: str = "claude-sonnet-4-6"
+    NARRATIVE_MODEL: str = "claude-haiku-4-5-20251001"
+    POSTMORTEM_MODEL: str = "claude-sonnet-4-6"
+
     # Operational
     LOG_LEVEL: str = "INFO"
     LOOP_INTERVAL: int = 300

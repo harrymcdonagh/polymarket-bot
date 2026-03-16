@@ -178,3 +178,68 @@ async def test_calibrator_combines_xgb_and_llm():
     assert prediction.predicted_probability > 0
     assert prediction.confidence > 0
     assert prediction.reasoning != ""
+
+
+@pytest.mark.asyncio
+async def test_train_from_history_uses_real_data(tmp_path):
+    import json
+    from src.db import Database
+    from src.predictor.trainer import train_from_history
+
+    db = Database(path=str(tmp_path / "test.db"))
+    db.init()
+
+    features_template = {
+        "yes_price": 0.5, "no_price": 0.5, "spread": 0.02,
+        "log_liquidity": 10.0, "log_volume_24h": 8.0,
+        "days_to_resolution": 30, "volume_liquidity_ratio": 0.2,
+        "flag_wide_spread": 0, "flag_high_volume": 0, "flag_price_spike": 0,
+        "sentiment_positive_ratio": 0.5, "sentiment_negative_ratio": 0.3,
+        "sentiment_neutral_ratio": 0.2, "sentiment_avg_score": 0.5,
+        "sentiment_sample_size": 50, "sentiment_polarity": 0.2,
+        "price_sentiment_gap": 0.0,
+    }
+
+    # Create 15 settled trades with predictions (need >=10)
+    for i in range(15):
+        mkt = f"mkt{i}"
+        side = "YES" if i % 2 == 0 else "NO"
+        outcome = "YES" if i % 3 != 0 else "NO"
+        db.save_prediction(
+            market_id=mkt, question=f"Q{i}?", market_yes_price=0.5,
+            predicted_prob=0.6, xgb_prob=0.55, llm_prob=0.65,
+            edge=0.10, confidence=0.7, recommended_side=side,
+            approved=True, bet_size=5.0,
+            features_json=json.dumps(features_template),
+        )
+        db.save_trade(mkt, side, 5.0, 0.5, status="dry_run", predicted_prob=0.6)
+        db.settle_dry_run_trade(i + 1, resolved_outcome=outcome, hypothetical_pnl=3.0 if side == outcome else -5.0)
+
+    db.close()
+    model = await train_from_history(
+        db_path=str(tmp_path / "test.db"),
+        model_path=str(tmp_path / "model.json"),
+    )
+    assert model.model is not None
+
+
+@pytest.mark.asyncio
+async def test_train_from_history_falls_back_with_few_trades(tmp_path):
+    from src.db import Database
+    from src.predictor.trainer import train_from_history
+
+    db = Database(path=str(tmp_path / "test.db"))
+    db.init()
+    # Only 2 trades — should fall back to Gamma API
+    for i in range(2):
+        db.save_trade(f"mkt{i}", "YES", 5.0, 0.5, status="dry_run", predicted_prob=0.6)
+        db.settle_dry_run_trade(i + 1, resolved_outcome="YES", hypothetical_pnl=5.0)
+    db.close()
+
+    with patch("src.predictor.trainer.fetch_resolved_markets", return_value=[]):
+        model = await train_from_history(
+            db_path=str(tmp_path / "test.db"),
+            model_path=str(tmp_path / "model.json"),
+        )
+        # With no Gamma data and <10 real trades, returns untrained model
+        assert model.model is None
