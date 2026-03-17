@@ -189,43 +189,69 @@
     async function refreshChart() {
         const resp = await fetch('/api/pnl-history');
         const data = await resp.json();
-        const labels = data.map(d => d.date);
-        const values = data.map(d => d.cumulative_pnl);
+        const labels = data.map(function(d) { return d.date; });
+        const settled = data.map(function(d) { return d.cumulative_pnl; });
+        const total = data.map(function(d) { return d.total_pnl; });
         const canvas = document.getElementById('pnl-chart');
         if (!canvas) return;
 
         if (!pnlChart) {
-            const ctx = canvas.getContext('2d');
-            const gradient = ctx.createLinearGradient(0, 0, 0, 200);
-            gradient.addColorStop(0, 'rgba(0, 230, 138, 0.12)');
-            gradient.addColorStop(0.6, 'rgba(0, 230, 138, 0.02)');
-            gradient.addColorStop(1, 'rgba(0, 230, 138, 0)');
+            var ctx = canvas.getContext('2d');
+            var gradientTotal = ctx.createLinearGradient(0, 0, 0, 200);
+            gradientTotal.addColorStop(0, 'rgba(96, 165, 250, 0.12)');
+            gradientTotal.addColorStop(0.6, 'rgba(96, 165, 250, 0.02)');
+            gradientTotal.addColorStop(1, 'rgba(96, 165, 250, 0)');
 
             pnlChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels,
-                    datasets: [{
-                        label: 'Cumulative PnL ($)',
-                        data: values,
-                        borderColor: '#00E68A',
-                        borderWidth: 1.5,
-                        backgroundColor: gradient,
-                        fill: true,
-                        tension: 0.35,
-                        pointRadius: 0,
-                        pointHoverRadius: 4,
-                        pointHoverBackgroundColor: '#00E68A',
-                        pointHoverBorderColor: '#0B0E14',
-                        pointHoverBorderWidth: 2,
-                    }]
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Total (settled + unrealised)',
+                            data: total,
+                            borderColor: '#60A5FA',
+                            borderWidth: 1.5,
+                            backgroundColor: gradientTotal,
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            pointHoverBackgroundColor: '#60A5FA',
+                            pointHoverBorderColor: '#0B0E14',
+                            pointHoverBorderWidth: 2,
+                        },
+                        {
+                            label: 'Settled PnL',
+                            data: settled,
+                            borderColor: '#00E68A',
+                            borderWidth: 1.5,
+                            borderDash: [4, 3],
+                            fill: false,
+                            tension: 0.35,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            pointHoverBackgroundColor: '#00E68A',
+                            pointHoverBorderColor: '#0B0E14',
+                            pointHoverBorderWidth: 2,
+                        }
+                    ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     interaction: { intersect: false, mode: 'index' },
                     plugins: {
-                        legend: { display: false },
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            align: 'end',
+                            labels: {
+                                boxWidth: 12, boxHeight: 2, padding: 6,
+                                font: { family: 'JetBrains Mono', size: 8 },
+                                color: '#566175',
+                            }
+                        },
                         tooltip: {
                             backgroundColor: '#131820',
                             borderColor: '#1C2333',
@@ -233,11 +259,13 @@
                             titleFont: { family: 'Bricolage Grotesque', size: 10, weight: '600' },
                             bodyFont: { family: 'JetBrains Mono', size: 11, weight: '500' },
                             titleColor: '#566175',
-                            bodyColor: '#00E68A',
+                            bodyColor: '#E6EDF3',
                             padding: { x: 8, y: 6 },
                             cornerRadius: 4,
-                            displayColors: false,
-                            callbacks: { label: ctx => '$' + ctx.parsed.y.toFixed(2) }
+                            displayColors: true,
+                            callbacks: {
+                                label: function(ctx) { return ' ' + ctx.dataset.label + ': $' + ctx.parsed.y.toFixed(2); }
+                            }
                         }
                     },
                     scales: {
@@ -248,7 +276,7 @@
                         },
                         y: {
                             grid: { color: 'rgba(28, 35, 51, 0.5)', drawTicks: false },
-                            ticks: { font: { family: 'JetBrains Mono', size: 8 }, color: '#2E3848', callback: v => '$' + v },
+                            ticks: { font: { family: 'JetBrains Mono', size: 8 }, color: '#2E3848', callback: function(v) { return '$' + v; } },
                             border: { display: false },
                         }
                     },
@@ -257,12 +285,28 @@
             });
         } else {
             pnlChart.data.labels = labels;
-            pnlChart.data.datasets[0].data = values;
+            pnlChart.data.datasets[0].data = total;
+            pnlChart.data.datasets[1].data = settled;
             pnlChart.update('none');
         }
     }
     refreshChart();
-    setInterval(refreshChart, 60000);
+    setInterval(refreshChart, 30000);
+
+    /* ── Unrealised PnL calc ── */
+    function calcUnrealisedPnl(side, amount, entryPrice, currentPrice) {
+        if (entryPrice <= 0 || entryPrice >= 1 || currentPrice == null) return null;
+        var fee = amount * 0.02;
+        if (side === 'YES') {
+            var shares = amount / entryPrice;
+            return shares * currentPrice - amount - fee;
+        } else {
+            var noPrice = 1.0 - entryPrice;
+            var shares2 = amount / noPrice;
+            var curNo = 1.0 - currentPrice;
+            return shares2 * curNo - amount - fee;
+        }
+    }
 
     /* ── Trades ── */
     let tradesPage = 1;
@@ -281,19 +325,66 @@
         if (data.total === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
 
         let html = '';
-        data.items.forEach(t => {
-            const name = esc(t.question || t.market_id || '');
-            const pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
-            const pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '\u2014';
-            const pnlCls = pnl !== null ? (pnl >= 0 ? 'pnl-pos' : 'pnl-neg') : 'pnl-na';
-            const sideCls = t.side === 'YES' ? 'side-yes' : 'side-no';
-            const statusCls = t.status === 'dry_run' ? 'status-pending' : t.status === 'dry_run_settled' ? 'status-settled' : 'status-dim';
+        data.items.forEach(function(t) {
+            var name = esc(t.question || t.market_id || '');
+            var sideCls = t.side === 'YES' ? 'side-yes' : 'side-no';
+            var isOpen = t.status === 'dry_run' || t.status === 'pending';
+
+            // Entry / Now prices
+            var entryStr = t.price.toFixed(2);
+            var nowStr = '\u2014';
+            var nowCls = 'pnl-na';
+            if (isOpen && t.current_price != null && t.current_price > 0) {
+                nowStr = t.current_price.toFixed(2);
+                var delta = t.side === 'YES' ? t.current_price - t.price : t.price - t.current_price;
+                nowCls = delta >= 0 ? 'pnl-pos' : 'pnl-neg';
+            }
+
+            // Value
+            var valueStr = '\u2014';
+            var valueCls = 'pnl-na';
+            if (isOpen && t.current_price != null && t.current_price > 0) {
+                var shares, curSharePrice;
+                if (t.side === 'YES') {
+                    shares = t.amount / t.price;
+                    curSharePrice = t.current_price;
+                } else {
+                    shares = t.amount / (1.0 - t.price);
+                    curSharePrice = 1.0 - t.current_price;
+                }
+                var value = shares * curSharePrice;
+                valueStr = '$' + value.toFixed(0);
+                valueCls = value >= t.amount ? 'pnl-pos' : 'pnl-neg';
+            } else if (!isOpen) {
+                var settled_pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
+                if (settled_pnl !== null) {
+                    var val = t.amount + settled_pnl;
+                    valueStr = '$' + Math.max(0, val).toFixed(0);
+                    valueCls = val >= t.amount ? 'pnl-pos' : 'pnl-neg';
+                }
+            }
+
+            // PnL
+            var pnl = null;
+            var pnlLabel = '';
+            if (isOpen && t.current_price != null && t.current_price > 0) {
+                pnl = calcUnrealisedPnl(t.side, t.amount, t.price, t.current_price);
+                pnlLabel = ' ur';
+            } else {
+                pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
+            }
+            var pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '-') + '$' + Math.abs(pnl).toFixed(2) + pnlLabel : '\u2014';
+            var pnlCls = pnl !== null ? (pnl >= 0 ? 'pnl-pos' : 'pnl-neg') : 'pnl-na';
+
             html += '<div class="trade-card">' +
                 '<div class="trade-card-question">' + name + '</div>' +
                 '<div class="trade-card-row">' +
                     '<span class="side-badge ' + sideCls + '">' + esc(t.side) + '</span>' +
                     '<span class="trade-amount">$' + t.amount.toFixed(0) + '</span>' +
-                    '<span class="trade-status ' + statusCls + '">' + esc(t.status) + '</span>' +
+                    '<span class="trade-detail">' + entryStr + ' &rarr; <span class="' + nowCls + '">' + nowStr + '</span></span>' +
+                '</div>' +
+                '<div class="trade-card-row">' +
+                    '<span class="trade-detail">Val: <span class="' + valueCls + '">' + valueStr + '</span></span>' +
                     '<span class="trade-pnl ' + pnlCls + '">' + pnlStr + '</span>' +
                 '</div></div>';
         });
@@ -398,10 +489,11 @@
                     '<div class="stat-card"><div class="stat-label">Trades</div><div class="stat-value">' + s.total_trades + '</div></div>' +
                     '<div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value pending">' + (s.dry_run_pending || 0) + '</div></div>' +
                     '<div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value">' + (s.win_rate * 100).toFixed(0) + '%</div></div>' +
-                    '<div class="stat-card"><div class="stat-label">PnL</div><div class="stat-value" style="color:' + pnlColor + '">' + pnlSign + '$' + Math.abs(s.total_pnl).toFixed(2) + '</div></div>' +
+                    '<div class="stat-card"><div class="stat-label">Settled PnL</div><div class="stat-value" style="color:' + pnlColor + '">' + pnlSign + '$' + Math.abs(s.total_pnl).toFixed(2) + '</div></div>' +
                 '</div>' +
                 '<div class="stats-more-toggle" onclick="this.nextElementSibling.classList.toggle(\'open\');this.textContent=this.nextElementSibling.classList.contains(\'open\')?\'&#9650; less stats\':\'&#9660; more stats\'">&#9660; more stats</div>' +
                 '<div class="stats-more">' +
+                    '<div class="stat-card"><div class="stat-label">Unrealised PnL</div><div class="stat-value" style="color:' + ((s.unrealised_pnl || 0) >= 0 ? 'var(--neon)' : 'var(--red)') + '">' + ((s.unrealised_pnl || 0) >= 0 ? '+' : '') + '$' + Math.abs(s.unrealised_pnl || 0).toFixed(2) + '</div></div>' +
                     '<div class="stat-card"><div class="stat-label">Predictions</div><div class="stat-value">' + (s.total_predictions || 0) + '</div></div>' +
                     '<div class="stat-card"><div class="stat-label">Accuracy</div><div class="stat-value" style="color:' + (accStr !== '\u2014' ? 'var(--neon)' : 'var(--text-ghost)') + '">' + accStr + '</div></div>' +
                     '<div class="stat-card full-width"><div class="stat-label">Snapshots</div><div class="stat-value">' + s.snapshot_count + '</div></div>' +
