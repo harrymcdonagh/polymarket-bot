@@ -85,8 +85,9 @@ async def test_run_settles_resolved_trades(settler, tmp_db):
     settler.postmortem = AsyncMock()
     settler.postmortem.analyze_loss = AsyncMock(return_value={})
 
-    with patch("httpx.AsyncClient.get", return_value=mock_response):
-        await settler.run()
+    with patch.object(settler, "refresh_open_positions", new_callable=AsyncMock):
+        with patch("httpx.AsyncClient.get", return_value=mock_response):
+            await settler.run()
 
     trades = tmp_db.get_unresolved_dry_run_trades()
     assert len(trades) == 0
@@ -108,8 +109,9 @@ async def test_run_saves_trade_metrics(settler, tmp_db):
         "closed": True, "resolved": True, "outcomePrices": "[\"1\",\"0\"]"
     }
 
-    with patch("httpx.AsyncClient.get", return_value=mock_response):
-        await settler.run()
+    with patch.object(settler, "refresh_open_positions", new_callable=AsyncMock):
+        with patch("httpx.AsyncClient.get", return_value=mock_response):
+            await settler.run()
 
     conn = tmp_db._conn()
     metric = conn.execute("SELECT * FROM trade_metrics WHERE trade_id = 1").fetchone()
@@ -140,8 +142,9 @@ async def test_postmortem_skipped_for_low_edge_wrong(settler, tmp_db):
     mock_postmortem.analyze_loss = AsyncMock(return_value={})
     settler.postmortem = mock_postmortem
 
-    with patch("httpx.AsyncClient.get", return_value=mock_response):
-        await settler.run()
+    with patch.object(settler, "refresh_open_positions", new_callable=AsyncMock):
+        with patch("httpx.AsyncClient.get", return_value=mock_response):
+            await settler.run()
 
     mock_postmortem.analyze_loss.assert_not_called()
 
@@ -167,7 +170,83 @@ async def test_postmortem_runs_for_high_edge_wrong(settler, tmp_db):
     mock_postmortem.analyze_loss = AsyncMock(return_value={})
     settler.postmortem = mock_postmortem
 
-    with patch("httpx.AsyncClient.get", return_value=mock_response):
-        await settler.run()
+    with patch.object(settler, "refresh_open_positions", new_callable=AsyncMock):
+        with patch("httpx.AsyncClient.get", return_value=mock_response):
+            await settler.run()
 
     mock_postmortem.analyze_loss.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_refresh_open_positions_updates_prices(settler, tmp_db):
+    tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
+
+    mock_response = AsyncMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = [
+        {"resolved": False, "outcomePrices": "[\"0.65\",\"0.35\"]"}
+    ]
+
+    with patch("httpx.AsyncClient.get", return_value=mock_response):
+        await settler.refresh_open_positions()
+
+    conn = tmp_db._conn()
+    row = conn.execute("SELECT current_price, price_updated_at FROM trades WHERE id = 1").fetchone()
+    assert row["current_price"] == pytest.approx(0.65)
+    assert row["price_updated_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_refresh_open_positions_handles_api_failure(settler, tmp_db):
+    tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
+
+    mock_response = AsyncMock()
+    mock_response.status_code = 500
+    mock_response.json.return_value = {}
+
+    with patch("httpx.AsyncClient.get", return_value=mock_response):
+        await settler.refresh_open_positions()
+
+    conn = tmp_db._conn()
+    row = conn.execute("SELECT current_price FROM trades WHERE id = 1").fetchone()
+    assert row["current_price"] is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_deduplicates_api_calls(settler, tmp_db):
+    tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
+    tmp_db.save_trade("cond-1", "NO", 5.0, 0.5, status="dry_run", predicted_prob=0.3)
+
+    mock_response = AsyncMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = [
+        {"resolved": False, "outcomePrices": "[\"0.60\",\"0.40\"]"}
+    ]
+
+    with patch("httpx.AsyncClient.get", return_value=mock_response) as mock_get:
+        await settler.refresh_open_positions()
+
+    assert mock_get.call_count == 1
+
+    conn = tmp_db._conn()
+    rows = conn.execute("SELECT current_price FROM trades WHERE market_id = 'cond-1'").fetchall()
+    assert all(r["current_price"] == pytest.approx(0.60) for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_run_calls_refresh_before_settlement(settler, tmp_db):
+    """Verify run() calls refresh_open_positions before checking resolutions."""
+    call_order = []
+
+    async def mock_refresh():
+        call_order.append("refresh")
+
+    with patch.object(settler, "refresh_open_positions", side_effect=mock_refresh):
+        tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"resolved": False}
+        with patch("httpx.AsyncClient.get", return_value=mock_response):
+            await settler.run()
+
+    assert call_order[0] == "refresh"

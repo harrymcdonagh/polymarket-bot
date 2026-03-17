@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import httpx
 from src.db import Database
 from src.notifications.telegram import TelegramNotifier
+from src.pnl import calc_unrealised_pnl
 
 if TYPE_CHECKING:
     from src.postmortem.postmortem import PostmortemAnalyzer
@@ -21,6 +22,7 @@ class Settler:
         self.gamma_url = gamma_url
         self.postmortem = postmortem
         self._last_summary_date: str | None = None
+        self._last_positions_update: str | None = None
 
     async def check_resolution(self, condition_id: str) -> str | None:
         """Check if a market has resolved. Returns 'YES'/'NO' or None if still active."""
@@ -89,8 +91,93 @@ class Settler:
             else:
                 return -amount - fee
 
+    async def fetch_current_price(self, condition_id: str) -> float | None:
+        """Fetch current YES price from Gamma API for an active market."""
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(
+                    f"{self.gamma_url}/markets",
+                    params={"conditionId": condition_id},
+                )
+                if resp.status_code != 200:
+                    logger.warning(f"Gamma API returned {resp.status_code} for price check {condition_id}")
+                    return None
+                raw = resp.json()
+                results = (await raw) if hasattr(raw, "__await__") else raw
+                if isinstance(results, list):
+                    if not results:
+                        return None
+                    data = results[0]
+                else:
+                    data = results
+
+            prices_str = data.get("outcomePrices", "[]")
+            prices = json.loads(prices_str)
+            if len(prices) >= 2:
+                return float(prices[0])
+            return None
+        except Exception as e:
+            logger.warning(f"Price fetch failed for {condition_id}: {e}")
+            return None
+
+    async def refresh_open_positions(self) -> None:
+        """Refresh current prices for all open positions and optionally send Telegram update."""
+        trades = self.db.get_open_positions_with_prices()
+        if not trades:
+            return
+
+        # Deduplicate API calls by market_id
+        market_ids = {t["market_id"] for t in trades}
+        prices: dict[str, float] = {}
+        for market_id in market_ids:
+            price = await self.fetch_current_price(market_id)
+            if price is not None:
+                prices[market_id] = price
+
+        # Update DB and build position summaries
+        positions = []
+        for trade in trades:
+            current_price = prices.get(trade["market_id"])
+            if current_price is None:
+                continue
+            self.db.update_trade_price(trade["id"], current_price)
+            pnl = calc_unrealised_pnl(
+                side=trade["side"],
+                amount=trade["amount"],
+                entry_price=trade["price"],
+                current_yes_price=current_price,
+            )
+            question = trade.get("question") or trade["market_id"]
+            positions.append({
+                "question": question,
+                "side": trade["side"],
+                "price": trade["price"],
+                "current_price": current_price,
+                "unrealised_pnl": pnl,
+            })
+
+        if not positions:
+            return
+
+        total_unrealised = sum(p["unrealised_pnl"] for p in positions)
+        logger.info(f"Refreshed {len(positions)} positions, total unrealised: ${total_unrealised:.2f}")
+
+        # Throttle Telegram updates to once per 6 hours
+        now = datetime.now(timezone.utc)
+        should_send = True
+        if self._last_positions_update:
+            last = datetime.fromisoformat(self._last_positions_update)
+            if (now - last).total_seconds() < 6 * 3600:
+                should_send = False
+
+        if should_send and self.notifier.is_enabled:
+            msg = self.notifier.format_positions_update(positions, total_unrealised)
+            await self.notifier.send(msg)
+            self._last_positions_update = now.isoformat()
+
     async def run(self) -> None:
         """Check all unresolved dry-run trades and settle any that have resolved."""
+        await self.refresh_open_positions()
         trades = self.db.get_unresolved_dry_run_trades()
         if not trades:
             logger.info("No unresolved dry-run trades to check")
@@ -201,5 +288,17 @@ class Settler:
             f"*P&L:* Today ${daily_pnl:.2f} | Total ${stats['total_pnl']:.2f}\n"
             f"*Snapshots:* {snapshots}"
         )
+        open_positions = self.db.get_open_positions_with_prices()
+        if open_positions:
+            total_unrealised = sum(
+                calc_unrealised_pnl(
+                    side=t["side"], amount=t["amount"],
+                    entry_price=t["price"], current_yes_price=t["current_price"],
+                )
+                for t in open_positions if t.get("current_price") is not None
+            )
+            ur_str = f"+${total_unrealised:.2f}" if total_unrealised >= 0 else f"-${abs(total_unrealised):.2f}"
+            msg += f"\n*Open positions:* {len(open_positions)} | Unrealised {ur_str}"
+
         await self.notifier.send(msg)
         self._last_summary_date = today
