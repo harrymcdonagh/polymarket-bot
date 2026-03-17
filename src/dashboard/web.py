@@ -154,7 +154,7 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
 
     @app.get("/api/logs")
     async def api_logs():
-        return service.get_recent_logs()
+        return service.get_recent_logs(limit=200)
 
     @app.post("/api/scan", status_code=202)
     async def api_scan(body: ScanRequest | None = None):
