@@ -78,6 +78,14 @@
     </dialog>
 
     <script>
+    /* ── Dedupe: skip DOM updates when data hasn't changed ── */
+    const _lastResponse = {};
+    function unchanged(key, text) {
+        if (_lastResponse[key] === text) return true;
+        _lastResponse[key] = text;
+        return false;
+    }
+
     /* ── Escape HTML ── */
     function esc(s) {
         const d = document.createElement('div');
@@ -239,7 +247,9 @@
 
     async function loadTrades() {
         const resp = await fetch('/api/trades?page=1&per_page=200');
-        const data = await resp.json();
+        const text = await resp.text();
+        if (unchanged('trades', text)) return;
+        const data = JSON.parse(text);
         const el = document.getElementById('trades-table');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
         let html = '<div class="table-scroll"><table class="trades-tbl"><tr><th>Market</th><th>Side</th><th>Cost</th><th>Entry</th><th>Now</th><th>Value</th><th>PnL</th></tr>';
@@ -319,7 +329,9 @@
     /* ── Markets (scrollable, no pagination) ── */
     async function loadMarkets() {
         const resp = await fetch('/api/markets?page=1&per_page=200');
-        const data = await resp.json();
+        const text = await resp.text();
+        if (unchanged('markets', text)) return;
+        const data = JSON.parse(text);
         const el = document.getElementById('markets-list');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No flagged markets.</p>'; return; }
         let html = '<div class="table-scroll"><table><colgroup><col style="width:auto"><col style="width:45px"><col style="width:170px"><col style="width:55px"></colgroup><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th></tr>';
@@ -411,6 +423,11 @@
 
     /* ── htmx Response Formatting ── */
     htmx.on('htmx:beforeSwap', function(evt) {
+        var key = evt.detail.target.id || evt.detail.target.className;
+        if (unchanged('htmx-' + key, evt.detail.xhr.responseText)) {
+            evt.detail.shouldSwap = false;
+            return;
+        }
 
         /* Status badge */
         if (evt.detail.target.id === 'status-badge') {

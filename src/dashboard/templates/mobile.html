@@ -125,6 +125,14 @@
     </dialog>
 
     <script>
+    /* ── Dedupe: skip DOM updates when data hasn't changed ── */
+    var _lastResponse = {};
+    function unchanged(key, text) {
+        if (_lastResponse[key] === text) return true;
+        _lastResponse[key] = text;
+        return false;
+    }
+
     /* ── Utilities ── */
     function esc(s) {
         const d = document.createElement('div');
@@ -315,7 +323,9 @@
     async function loadTrades(page) {
         tradesPage = page || 1;
         const resp = await fetch('/api/trades?page=' + tradesPage + '&per_page=' + TRADES_PER_PAGE);
-        const data = await resp.json();
+        var text = await resp.text();
+        if (unchanged('trades-' + tradesPage, text)) return;
+        const data = JSON.parse(text);
         const el = document.getElementById('trades-list');
         if (!el) return;
 
@@ -409,7 +419,9 @@
     async function loadMarkets(page) {
         marketsPage = page || 1;
         const resp = await fetch('/api/markets?page=' + marketsPage + '&per_page=' + MARKETS_PER_PAGE);
-        const data = await resp.json();
+        var text = await resp.text();
+        if (unchanged('markets-' + marketsPage, text)) return;
+        const data = JSON.parse(text);
         const el = document.getElementById('markets-list');
         if (!el) return;
 
@@ -461,6 +473,11 @@
     let latestStats = {};
 
     htmx.on('htmx:beforeSwap', function(evt) {
+        var key = evt.detail.target.id || evt.detail.target.className;
+        if (unchanged('htmx-' + key, evt.detail.xhr.responseText)) {
+            evt.detail.shouldSwap = false;
+            return;
+        }
 
         /* Status badge */
         if (evt.detail.target.id === 'status-badge') {
