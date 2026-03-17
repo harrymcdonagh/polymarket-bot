@@ -208,11 +208,9 @@
         return html;
     }
 
-    /* ── Trades (paginated) ── */
-    let tradesPage = 1;
-    async function loadTrades(page) {
-        tradesPage = page || tradesPage;
-        const resp = await fetch(`/api/trades?page=${tradesPage}&per_page=12`);
+    /* ── Trades (scrollable, no pagination) ── */
+    async function loadTrades() {
+        const resp = await fetch('/api/trades?page=1&per_page=200');
         const data = await resp.json();
         const el = document.getElementById('trades-table');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
@@ -233,11 +231,10 @@
             </tr>`;
         });
         html += '</table></div>';
-        html += renderPager(data.page, data.total, data.per_page, 'loadTrades');
         el.innerHTML = html;
     }
-    loadTrades(1);
-    setInterval(() => loadTrades(), 10000);
+    loadTrades();
+    setInterval(loadTrades, 10000);
 
     /* ── Markets (scrollable, no pagination) ── */
     async function loadMarkets() {
