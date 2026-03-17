@@ -112,6 +112,15 @@ class Database:
                 market_yes_price REAL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS pnl_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                settled_pnl REAL NOT NULL,
+                unrealised_pnl REAL NOT NULL,
+                total_pnl REAL NOT NULL,
+                open_positions INTEGER NOT NULL,
+                snapshot_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_pnl_snapshots_at ON pnl_snapshots(snapshot_at);
             CREATE INDEX IF NOT EXISTS idx_lessons_category ON lessons(category);
             CREATE INDEX IF NOT EXISTS idx_trades_market_id ON trades(market_id);
             CREATE INDEX IF NOT EXISTS idx_predictions_market_id ON predictions(market_id);
@@ -517,3 +526,21 @@ class Database:
             (condition_id,),
         ).fetchone()
         return row["yes_price"] if row else None
+
+    def save_pnl_snapshot(self, settled_pnl: float, unrealised_pnl: float,
+                          total_pnl: float, open_positions: int):
+        conn = self._conn()
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO pnl_snapshots (settled_pnl, unrealised_pnl, total_pnl, open_positions, snapshot_at) VALUES (?, ?, ?, ?, ?)",
+            (settled_pnl, unrealised_pnl, total_pnl, open_positions, now),
+        )
+        conn.commit()
+
+    def get_pnl_snapshots(self, limit: int = 500) -> list[dict]:
+        conn = self._conn()
+        rows = conn.execute(
+            "SELECT * FROM pnl_snapshots ORDER BY snapshot_at ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]

@@ -178,6 +178,16 @@ class Settler:
         total_unrealised = sum(p["unrealised_pnl"] for p in positions)
         logger.info(f"Refreshed {len(positions)} positions, total unrealised: ${total_unrealised:.2f}")
 
+        # Save PnL snapshot for charting
+        stats = self.db.get_trade_stats()
+        settled_pnl = stats["total_pnl"]
+        self.db.save_pnl_snapshot(
+            settled_pnl=settled_pnl,
+            unrealised_pnl=round(total_unrealised, 2),
+            total_pnl=round(settled_pnl + total_unrealised, 2),
+            open_positions=len(positions),
+        )
+
         # Throttle Telegram updates to once per 6 hours
         now = datetime.now(timezone.utc)
         should_send = True
