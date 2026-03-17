@@ -13,3 +13,4 @@ model_*.json
 .worktrees/
 .pm-bot-key
 .pm-bot-key.pub
+.superpowers/
