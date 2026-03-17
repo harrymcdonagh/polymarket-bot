@@ -86,15 +86,24 @@ class TelegramNotifier:
 
     def format_positions_update(self, positions: list[dict], total_unrealised: float) -> str:
         total_str = f"+${total_unrealised:.2f}" if total_unrealised >= 0 else f"-${abs(total_unrealised):.2f}"
+        # Sort by absolute unrealised PnL descending to show biggest movers first
+        sorted_pos = sorted(positions, key=lambda p: abs(p["unrealised_pnl"]), reverse=True)
+        # Show top 10 positions to stay within Telegram's 4096 char limit
+        show = sorted_pos[:10]
         lines = [f"*Open Positions ({len(positions)})*\n"]
-        for p in positions:
+        for p in show:
             pnl = p["unrealised_pnl"]
             pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
             lines.append(
                 f"{p['question']}\n"
                 f"  {p['side']} @ ${p['price']:.2f} -> ${p['current_price']:.2f} | {pnl_str} unrealised"
             )
+        if len(positions) > 10:
+            lines.append(f"\n_...and {len(positions) - 10} more positions_")
+        winners = sum(1 for p in positions if p["unrealised_pnl"] >= 0)
+        losers = len(positions) - winners
         lines.append(f"\n*Total unrealised: {total_str}*")
+        lines.append(f"Winning: {winners} | Losing: {losers}")
         return "\n".join(lines)
 
     def format_startup(self) -> str:
