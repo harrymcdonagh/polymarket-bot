@@ -47,19 +47,23 @@
                 <div id="markets-list"></div>
             </section>
 
-            <!-- Right column bottom: Live Feed + Lessons side by side -->
-            <div class="split-row">
-                <section class="card">
-                    <h2>Live Feed</h2>
-                    <div id="log-feed" class="log-feed" hx-get="/api/logs" hx-trigger="load, every 5s" hx-swap="innerHTML">
+            <!-- Right column bottom: Tabbed Live Feed / Lessons -->
+            <section class="card tabbed-card">
+                <div class="tab-bar">
+                    <button class="active" onclick="switchTab(this, 'tab-logs')">Live Feed</button>
+                    <button onclick="switchTab(this, 'tab-lessons')">Lessons</button>
+                </div>
+                <div class="tab-content">
+                    <div id="tab-logs" class="tab-panel active">
+                        <div id="log-feed" class="log-feed" hx-get="/api/logs" hx-trigger="load, every 5s" hx-swap="innerHTML">
+                        </div>
                     </div>
-                </section>
-                <section class="card">
-                    <h2>Lessons</h2>
-                    <div id="lessons-list" hx-get="/api/lessons" hx-trigger="load, every 30s" hx-swap="innerHTML">
+                    <div id="tab-lessons" class="tab-panel">
+                        <div id="lessons-list" hx-get="/api/lessons" hx-trigger="load, every 30s" hx-swap="innerHTML">
+                        </div>
                     </div>
-                </section>
-            </div>
+                </div>
+            </section>
         </div>
     </main>
 
@@ -92,6 +96,15 @@
         el.textContent = msg;
         document.body.appendChild(el);
         setTimeout(() => el.remove(), 3000);
+    }
+
+    /* ── Tab switching ── */
+    function switchTab(btn, panelId) {
+        const card = btn.closest('.tabbed-card');
+        card.querySelectorAll('.tab-bar button').forEach(b => b.classList.remove('active'));
+        card.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(panelId).classList.add('active');
     }
 
     /* ── PnL Chart ── */
