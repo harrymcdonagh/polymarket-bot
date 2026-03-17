@@ -147,6 +147,7 @@ class Database:
             ("predicted_prob", "REAL"),
             ("current_price", "REAL"),
             ("price_updated_at", "TEXT"),
+            ("resolution_pending", "INTEGER DEFAULT 0"),
         ]
         for col_name, col_type in migrations:
             if col_name not in existing:
@@ -451,6 +452,14 @@ class Database:
         conn.execute(
             "UPDATE trades SET status = 'dry_run_settled', resolved_outcome = ?, hypothetical_pnl = ?, resolved_at = ? WHERE id = ?",
             (resolved_outcome, hypothetical_pnl, now, trade_id),
+        )
+        conn.commit()
+
+    def set_resolution_pending(self, trade_id: int, pending: int):
+        conn = self._conn()
+        conn.execute(
+            "UPDATE trades SET resolution_pending = ? WHERE id = ?",
+            (pending, trade_id),
         )
         conn.commit()
 
