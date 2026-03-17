@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import re
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -27,6 +28,13 @@ class LoopRequest(BaseModel):
 
 class ScanRequest(BaseModel):
     dry_run: bool | None = None
+
+
+_MOBILE_UA_RE = re.compile(r"iPhone|Android|Mobile|webOS|iPod|BlackBerry", re.IGNORECASE)
+
+def is_mobile_ua(request: Request) -> bool:
+    ua = request.headers.get("user-agent", "")
+    return bool(_MOBILE_UA_RE.search(ua))
 
 
 def create_app(settings=None, db_path: str | None = None) -> FastAPI:
@@ -67,6 +75,19 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
+        if templates:
+            template = "mobile.html" if is_mobile_ua(request) else "index.html"
+            return templates.TemplateResponse(template, {"request": request})
+        return HTMLResponse("<h1>Polymarket Bot Dashboard</h1><p>Templates not found.</p>")
+
+    @app.get("/mobile", response_class=HTMLResponse)
+    async def mobile(request: Request):
+        if templates:
+            return templates.TemplateResponse("mobile.html", {"request": request})
+        return HTMLResponse("<h1>Polymarket Bot Dashboard</h1><p>Templates not found.</p>")
+
+    @app.get("/desktop", response_class=HTMLResponse)
+    async def desktop(request: Request):
         if templates:
             return templates.TemplateResponse("index.html", {"request": request})
         return HTMLResponse("<h1>Polymarket Bot Dashboard</h1><p>Templates not found.</p>")
