@@ -398,7 +398,8 @@ main {
 
 .tabbed-card .tab-bar {
     display: flex;
-    gap: 0;
+    flex-direction: row;
+    gap: 0.15rem;
     flex-shrink: 0;
     border-bottom: 1px solid var(--border);
     margin-bottom: 0.25rem;
