@@ -91,21 +91,64 @@ class Settler:
             else:
                 return -amount - fee
 
+    async def _fetch_bulk_prices(self, condition_ids: set[str]) -> dict[str, float]:
+        """Fetch current prices for multiple markets via Gamma bulk API (single paginated call)."""
+        prices: dict[str, float] = {}
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                offset = 0
+                while True:
+                    resp = await client.get(
+                        f"{self.gamma_url}/markets",
+                        params={"active": "true", "closed": "false",
+                                "limit": 100, "offset": offset},
+                    )
+                    if resp.status_code != 200:
+                        logger.warning(f"Bulk price fetch failed: {resp.status_code}")
+                        break
+                    raw = resp.json()
+                    markets = (await raw) if hasattr(raw, "__await__") else raw
+                    if not markets:
+                        break
+                    for m in markets:
+                        cid = m.get("conditionId") or m.get("condition_id", "")
+                        if cid not in condition_ids:
+                            continue
+                        try:
+                            outcome = json.loads(m.get("outcomePrices", "[]"))
+                            if len(outcome) >= 2:
+                                p = float(outcome[0])
+                                if 0 < p < 1:
+                                    prices[cid] = p
+                        except (json.JSONDecodeError, TypeError, ValueError):
+                            continue
+                    # Stop early if we found all markets or no more results
+                    if len(prices) >= len(condition_ids) or len(markets) < 100:
+                        break
+                    offset += 100
+        except Exception as e:
+            logger.warning(f"Bulk price fetch error: {e}")
+        return prices
+
     async def refresh_open_positions(self) -> None:
-        """Refresh current prices for all open positions using latest scanner snapshots."""
+        """Refresh current prices for all open positions via bulk Gamma API."""
         trades = self.db.get_open_positions_with_prices()
         if not trades:
             return
 
-        # Get latest snapshot prices from DB (written by scanner each pipeline cycle)
         market_ids = {t["market_id"] for t in trades}
-        prices: dict[str, float] = {}
-        for market_id in market_ids:
-            price = self.db.get_latest_snapshot_price(market_id)
-            if price is not None and 0 < price < 1:
-                prices[market_id] = price
 
-        logger.info(f"Got snapshot prices for {len(prices)}/{len(market_ids)} markets")
+        # Fetch live prices from Gamma bulk API
+        prices = await self._fetch_bulk_prices(market_ids)
+
+        # Fill gaps from DB snapshots (for markets not in current active listing)
+        for market_id in market_ids:
+            if market_id not in prices:
+                snap_price = self.db.get_latest_snapshot_price(market_id)
+                if snap_price is not None and 0 < snap_price < 1:
+                    prices[market_id] = snap_price
+
+        logger.info(f"Got prices for {len(prices)}/{len(market_ids)} markets")
 
         # Update DB and build position summaries
         positions = []
