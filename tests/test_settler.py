@@ -177,18 +177,27 @@ async def test_postmortem_runs_for_high_edge_wrong(settler, tmp_db):
     mock_postmortem.analyze_loss.assert_called_once()
 
 
+def _insert_snapshot(db, condition_id, yes_price):
+    """Helper to insert a market snapshot with a given price."""
+    from src.models import ScannedMarket
+    from datetime import datetime, timezone
+    market = ScannedMarket(
+        condition_id=condition_id, question="Test?", slug="test",
+        token_yes_id="ty", token_no_id="tn",
+        yes_price=yes_price, no_price=1 - yes_price, spread=0.01,
+        liquidity=10000, volume_24h=5000,
+        end_date=None, days_to_resolution=10,
+        flags=[], scanned_at=datetime.now(timezone.utc),
+    )
+    db.save_market_snapshots_batch([market])
+
+
 @pytest.mark.asyncio
 async def test_refresh_open_positions_updates_prices(settler, tmp_db):
     tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
+    _insert_snapshot(tmp_db, "cond-1", 0.65)
 
-    mock_response = AsyncMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = [
-        {"resolved": False, "outcomePrices": "[\"0.65\",\"0.35\"]"}
-    ]
-
-    with patch("httpx.AsyncClient.get", return_value=mock_response):
-        await settler.refresh_open_positions()
+    await settler.refresh_open_positions()
 
     conn = tmp_db._conn()
     row = conn.execute("SELECT current_price, price_updated_at FROM trades WHERE id = 1").fetchone()
@@ -197,15 +206,11 @@ async def test_refresh_open_positions_updates_prices(settler, tmp_db):
 
 
 @pytest.mark.asyncio
-async def test_refresh_open_positions_handles_api_failure(settler, tmp_db):
+async def test_refresh_open_positions_no_snapshot(settler, tmp_db):
+    """No snapshot means no price update."""
     tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
 
-    mock_response = AsyncMock()
-    mock_response.status_code = 500
-    mock_response.json.return_value = {}
-
-    with patch("httpx.AsyncClient.get", return_value=mock_response):
-        await settler.refresh_open_positions()
+    await settler.refresh_open_positions()
 
     conn = tmp_db._conn()
     row = conn.execute("SELECT current_price FROM trades WHERE id = 1").fetchone()
@@ -213,20 +218,12 @@ async def test_refresh_open_positions_handles_api_failure(settler, tmp_db):
 
 
 @pytest.mark.asyncio
-async def test_refresh_deduplicates_api_calls(settler, tmp_db):
+async def test_refresh_updates_both_trades_same_market(settler, tmp_db):
     tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
     tmp_db.save_trade("cond-1", "NO", 5.0, 0.5, status="dry_run", predicted_prob=0.3)
+    _insert_snapshot(tmp_db, "cond-1", 0.60)
 
-    mock_response = AsyncMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = [
-        {"resolved": False, "outcomePrices": "[\"0.60\",\"0.40\"]"}
-    ]
-
-    with patch("httpx.AsyncClient.get", return_value=mock_response) as mock_get:
-        await settler.refresh_open_positions()
-
-    assert mock_get.call_count == 1
+    await settler.refresh_open_positions()
 
     conn = tmp_db._conn()
     rows = conn.execute("SELECT current_price FROM trades WHERE market_id = 'cond-1'").fetchall()

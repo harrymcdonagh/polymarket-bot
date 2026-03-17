@@ -91,66 +91,21 @@ class Settler:
             else:
                 return -amount - fee
 
-    async def fetch_current_price(self, condition_id: str) -> float | None:
-        """Fetch current YES price from Gamma API for an active market."""
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.get(
-                    f"{self.gamma_url}/markets",
-                    params={"conditionId": condition_id},
-                )
-                if resp.status_code != 200:
-                    logger.warning(f"Gamma API returned {resp.status_code} for price check {condition_id}")
-                    return None
-                raw = resp.json()
-                results = (await raw) if hasattr(raw, "__await__") else raw
-                if isinstance(results, list):
-                    if not results:
-                        return None
-                    data = results[0]
-                else:
-                    data = results
-
-            # Try outcomePrices first (JSON string like '["0.45","0.55"]')
-            prices_str = data.get("outcomePrices", "[]")
-            try:
-                prices = json.loads(prices_str) if isinstance(prices_str, str) else prices_str
-            except (json.JSONDecodeError, TypeError):
-                prices = []
-            if len(prices) >= 2:
-                price = float(prices[0])
-                if 0 < price < 1:
-                    return price
-
-            # Fallback: try bestBid or lastTradePrice
-            for field in ("bestBid", "lastTradePrice"):
-                val = data.get(field)
-                if val is not None:
-                    price = float(val)
-                    if 0 < price < 1:
-                        return price
-
-            logger.debug(f"No valid price for {condition_id}: outcomePrices={prices_str}")
-            return None
-        except Exception as e:
-            logger.warning(f"Price fetch failed for {condition_id}: {e}")
-            return None
-
     async def refresh_open_positions(self) -> None:
-        """Refresh current prices for all open positions and optionally send Telegram update."""
+        """Refresh current prices for all open positions using latest scanner snapshots."""
         trades = self.db.get_open_positions_with_prices()
         if not trades:
             return
 
-        # Deduplicate API calls by market_id
+        # Get latest snapshot prices from DB (written by scanner each pipeline cycle)
         market_ids = {t["market_id"] for t in trades}
         prices: dict[str, float] = {}
         for market_id in market_ids:
-            price = await self.fetch_current_price(market_id)
-            if price is not None:
+            price = self.db.get_latest_snapshot_price(market_id)
+            if price is not None and 0 < price < 1:
                 prices[market_id] = price
 
-        logger.info(f"Fetched prices for {len(prices)}/{len(market_ids)} markets")
+        logger.info(f"Got snapshot prices for {len(prices)}/{len(market_ids)} markets")
 
         # Update DB and build position summaries
         positions = []

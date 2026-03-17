@@ -508,3 +508,12 @@ class Database:
             (condition_id,),
         ).fetchone()
         return row["question"] if row else None
+
+    def get_latest_snapshot_price(self, condition_id: str) -> float | None:
+        """Get the most recent YES price from market_snapshots for a given market."""
+        conn = self._conn()
+        row = conn.execute(
+            "SELECT yes_price FROM market_snapshots WHERE condition_id = ? ORDER BY snapshot_at DESC LIMIT 1",
+            (condition_id,),
+        ).fetchone()
+        return row["yes_price"] if row else None
