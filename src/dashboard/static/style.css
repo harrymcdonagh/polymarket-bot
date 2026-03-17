@@ -438,6 +438,20 @@ table {
     table-layout: fixed;
 }
 
+table.trades-tbl {
+    table-layout: auto;
+}
+table.trades-tbl td,
+table.trades-tbl th {
+    white-space: nowrap;
+    padding: 0.3rem 0.5rem;
+}
+table.trades-tbl .td-market {
+    white-space: normal;
+    word-break: break-word;
+    width: 100%;
+}
+
 th {
     font-family: var(--font-display);
     font-size: 0.62rem;
