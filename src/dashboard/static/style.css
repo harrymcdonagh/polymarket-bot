@@ -403,14 +403,24 @@ main {
 .split-col .card {
     flex: 1;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.split-col .card h2 {
+    flex-shrink: 0;
 }
 
 .split-col .log-feed {
+    flex: 1;
     overflow-y: auto;
+    min-height: 0;
 }
 
 .split-col #lessons-list {
+    flex: 1;
     overflow-y: auto;
+    min-height: 0;
 }
 
 /* ══════════════════════════════════════
