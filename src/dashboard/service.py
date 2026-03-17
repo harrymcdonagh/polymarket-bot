@@ -62,6 +62,16 @@ class DashboardService:
         trade_stats = self.db.get_trade_stats()
         pred_stats = self.db.get_prediction_stats()
         accuracy = self.db.get_prediction_accuracy()
+        # Calculate total unrealised PnL from open positions
+        from src.pnl import calc_unrealised_pnl
+        open_pos = self.db.get_open_positions_with_prices()
+        unrealised = sum(
+            calc_unrealised_pnl(
+                side=t["side"], amount=t["amount"],
+                entry_price=t["price"], current_yes_price=t["current_price"],
+            )
+            for t in open_pos if t.get("current_price") is not None
+        )
         return {
             **trade_stats,
             **pred_stats,
@@ -69,6 +79,7 @@ class DashboardService:
             "open_trades": len(self.db.get_open_trades()),
             "today_pnl": self.db.get_daily_pnl(),
             "snapshot_count": self.db.get_snapshot_count(),
+            "unrealised_pnl": round(unrealised, 2),
         }
 
     def get_recent_trades(self, limit: int = 20) -> list[dict]:
@@ -85,6 +96,33 @@ class DashboardService:
 
     def get_pnl_history(self) -> list[dict]:
         return self.db.get_pnl_history()
+
+    def get_open_positions(self) -> list[dict]:
+        from src.pnl import calc_unrealised_pnl
+        positions = self.db.get_open_positions_with_prices()
+        result = []
+        for p in positions:
+            current_price = p.get("current_price")
+            pnl = None
+            if current_price is not None:
+                pnl = calc_unrealised_pnl(
+                    side=p["side"],
+                    amount=p["amount"],
+                    entry_price=p["price"],
+                    current_yes_price=current_price,
+                )
+            result.append({
+                "trade_id": p["id"],
+                "market_id": p["market_id"],
+                "question": p.get("question") or p["market_id"],
+                "side": p["side"],
+                "amount": p["amount"],
+                "entry_price": p["price"],
+                "current_price": current_price,
+                "unrealised_pnl": round(pnl, 2) if pnl is not None else None,
+                "price_updated_at": p.get("price_updated_at"),
+            })
+        return result
 
     def get_lessons(self, category: str | None = None) -> list[dict]:
         return self.db.get_lessons(category)

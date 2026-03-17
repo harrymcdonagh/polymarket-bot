@@ -86,3 +86,16 @@ def test_post_settings_valid(client):
     resp = client.post("/api/settings", json={"key": "BANKROLL", "value": 2000})
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
+
+
+def test_get_positions(client):
+    resp = client.get("/api/positions")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+def test_stats_include_unrealised_pnl(client):
+    resp = client.get("/api/stats")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "unrealised_pnl" in data

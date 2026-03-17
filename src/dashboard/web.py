@@ -117,6 +117,10 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
     async def api_pnl_history():
         return await asyncio.to_thread(service.get_pnl_history)
 
+    @app.get("/api/positions")
+    async def api_positions():
+        return await asyncio.to_thread(service.get_open_positions)
+
     @app.get("/api/lessons")
     async def api_lessons():
         return await asyncio.to_thread(service.get_lessons)
