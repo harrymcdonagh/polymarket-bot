@@ -32,7 +32,7 @@
         <div class="grid">
             <!-- Left column: Trade History (top), Flagged Markets (bottom) -->
             <section class="card">
-                <h2>Trades</h2>
+                <h2>Trades <span class="trade-tabs"><button class="trade-tab active" onclick="switchTradeTab('open')">Open</button><button class="trade-tab" onclick="switchTradeTab('settled')">Settled</button></span></h2>
                 <div id="trades-table"></div>
             </section>
 
@@ -245,7 +245,17 @@
         }
     }
 
+    /* ── Trade tabs ── */
+    let _tradeTab = 'open';
+
+    function switchTradeTab(tab) {
+        _tradeTab = tab;
+        document.querySelectorAll('.trade-tab').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase() === tab));
+        renderTrades();
+    }
+
     /* ── Sortable trades ── */
+    const isSettled = s => s === 'dry_run_settled' || s === 'settled';
     let _tradesData = [];
     let _tradeSort = { col: null, asc: true };
 
@@ -260,22 +270,22 @@
     }
 
     function getTradeVal(t, col) {
-        const isOpen = t.status === 'dry_run' || t.status === 'pending';
+        const isOpen = !isSettled(t.status);
         switch(col) {
             case 'market': return (t.question || t.market_id || '').toLowerCase();
             case 'side': return t.side;
             case 'cost': return t.amount;
             case 'entry': return t.price;
-            case 'now': return (isOpen && t.current_price != null) ? t.current_price : -999;
+            case 'now': {
+                if (!isOpen) return t.resolved_outcome === 'YES' ? 1 : 0;
+                return (t.current_price != null) ? t.current_price : -999;
+            }
             case 'value': {
-                if (isOpen && t.current_price != null && t.current_price > 0) {
+                if (!isOpen) return t.side === t.resolved_outcome ? 1 : 0;
+                if (t.current_price != null && t.current_price > 0) {
                     let shares = t.side === 'YES' ? t.amount / t.price : t.amount / (1.0 - t.price);
                     let cur = t.side === 'YES' ? t.current_price : 1.0 - t.current_price;
                     return shares * cur;
-                }
-                if (!isOpen) {
-                    const sp = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
-                    if (sp !== null) return t.amount + sp;
                 }
                 return -999;
             }
@@ -293,7 +303,8 @@
         const el = document.getElementById('trades-table');
         if (_tradesData.length === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
 
-        let items = [..._tradesData];
+        let items = _tradesData.filter(t => _tradeTab === 'settled' ? isSettled(t.status) : !isSettled(t.status));
+        if (items.length === 0) { el.innerHTML = '<p class="muted">No ' + _tradeTab + ' trades.</p>'; return; }
         if (_tradeSort.col) {
             items.sort((a, b) => {
                 let va = getTradeVal(a, _tradeSort.col), vb = getTradeVal(b, _tradeSort.col);
@@ -303,7 +314,9 @@
         }
 
         const cols = ['market','side','cost','entry','now','value','pnl'];
-        const labels = ['Market','Side','Cost','Entry','Now','Value','PnL'];
+        const labels = _tradeTab === 'settled'
+            ? ['Market','Side','Cost','Entry','Outcome','Result','PnL']
+            : ['Market','Side','Cost','Entry','Now','Value','PnL'];
         let headerHtml = cols.map((c,i) => {
             let arrow = '';
             if (_tradeSort.col === c) arrow = _tradeSort.asc ? ' \u25B2' : ' \u25BC';
@@ -314,51 +327,43 @@
         items.forEach(t => {
             const name = esc(t.question || t.market_id || '');
             const sideStyle = t.side === 'YES' ? 'color:var(--neon)' : 'color:var(--red)';
-            const isOpen = t.status === 'dry_run' || t.status === 'pending';
-
-            // Entry price
+            const isOpen = !isSettled(t.status);
             const entryStr = t.price.toFixed(2);
-
-            // Current price (only for open trades with data)
-            let nowStr = '\u2014';
-            let nowStyle = 'color:var(--text-ghost)';
-            if (isOpen && t.current_price != null && t.current_price > 0) {
-                nowStr = t.current_price.toFixed(2);
-                const delta = t.side === 'YES' ? t.current_price - t.price : t.price - t.current_price;
-                nowStyle = delta >= 0 ? 'color:var(--neon)' : 'color:var(--red)';
-            }
-
-            // Cost = amount initially traded
             const costStr = '$' + t.amount.toFixed(0);
 
-            // Value = current market value of shares (shares * current share price)
-            let valueStr = '\u2014';
-            let valueStyle = 'color:var(--text-ghost)';
-            if (isOpen && t.current_price != null && t.current_price > 0) {
-                let shares, curSharePrice;
-                if (t.side === 'YES') {
-                    shares = t.amount / t.price;
-                    curSharePrice = t.current_price;
-                } else {
-                    shares = t.amount / (1.0 - t.price);
-                    curSharePrice = 1.0 - t.current_price;
+            let col5Str = '\u2014', col5Style = 'color:var(--text-ghost)';
+            let col6Str = '\u2014', col6Style = 'color:var(--text-ghost)';
+
+            if (isOpen) {
+                // Now (current price)
+                if (t.current_price != null && t.current_price > 0) {
+                    col5Str = t.current_price.toFixed(2);
+                    const delta = t.side === 'YES' ? t.current_price - t.price : t.price - t.current_price;
+                    col5Style = delta >= 0 ? 'color:var(--neon)' : 'color:var(--red)';
                 }
-                const value = shares * curSharePrice;
-                valueStr = '$' + value.toFixed(0);
-                valueStyle = value >= t.amount ? 'color:var(--neon)' : 'color:var(--red)';
-            } else if (!isOpen) {
-                // Settled: show final outcome
-                const settled_pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
-                if (settled_pnl !== null) {
-                    const value = t.amount + settled_pnl;
-                    valueStr = '$' + Math.max(0, value).toFixed(0);
-                    valueStyle = value >= t.amount ? 'color:var(--neon)' : 'color:var(--red)';
+                // Value
+                if (t.current_price != null && t.current_price > 0) {
+                    let shares = t.side === 'YES' ? t.amount / t.price : t.amount / (1.0 - t.price);
+                    let cur = t.side === 'YES' ? t.current_price : 1.0 - t.current_price;
+                    const value = shares * cur;
+                    col6Str = '$' + value.toFixed(0);
+                    col6Style = value >= t.amount ? 'color:var(--neon)' : 'color:var(--red)';
+                }
+            } else {
+                // Outcome
+                const outcome = t.resolved_outcome || '\u2014';
+                const won = t.side === t.resolved_outcome;
+                col5Str = outcome;
+                col5Style = outcome === 'YES' ? 'color:var(--neon)' : outcome === 'NO' ? 'color:var(--red)' : 'color:var(--text-ghost)';
+                // Result (WIN/LOSS)
+                if (t.resolved_outcome) {
+                    col6Str = won ? 'WIN' : 'LOSS';
+                    col6Style = won ? 'color:var(--neon);font-weight:700' : 'color:var(--red);font-weight:700';
                 }
             }
 
-            // PnL: settled uses pnl/hypothetical_pnl, open uses unrealised calc
-            let pnl = null;
-            let pnlLabel = '';
+            // PnL
+            let pnl = null, pnlLabel = '';
             if (isOpen && t.current_price != null && t.current_price > 0) {
                 pnl = calcUnrealisedPnl(t.side, t.amount, t.price, t.current_price);
                 pnlLabel = ' ur';
@@ -373,8 +378,8 @@
                 <td style="${sideStyle};font-weight:600">${esc(t.side)}</td>
                 <td>${costStr}</td>
                 <td>${entryStr}</td>
-                <td style="${nowStyle};font-weight:600">${nowStr}</td>
-                <td style="${valueStyle};font-weight:600">${valueStr}</td>
+                <td style="${col5Style};font-weight:600">${col5Str}</td>
+                <td style="${col6Style};font-weight:600">${col6Str}</td>
                 <td style="${pnlStyle};font-weight:600">${pnlStr}</td>
             </tr>`;
         });
