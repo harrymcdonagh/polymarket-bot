@@ -49,14 +49,21 @@ class Settler:
                 else:
                     data = results
 
-            is_closed = data.get("closed", False)
-            if isinstance(is_closed, str):
-                is_closed = is_closed.lower() == "true"
             is_resolved = data.get("resolved", False)
 
-            # Flag trades in dispute window (closed but not yet resolved)
-            if trade_id is not None:
-                pending = 1 if (is_closed and not is_resolved) else 0
+            # Detect dispute window: outcome prices near 0/1 but not yet resolved
+            # means an outcome has been proposed and is awaiting finalization
+            pending = 0
+            if not is_resolved and trade_id is not None:
+                try:
+                    prices_raw = json.loads(data.get("outcomePrices", "[]"))
+                    if len(prices_raw) >= 2:
+                        yp = float(prices_raw[0])
+                        # Outcome proposed when price is effectively 0 or 1
+                        if yp <= 0.01 or yp >= 0.99:
+                            pending = 1
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
                 self.db.set_resolution_pending(trade_id, pending)
 
             if not is_resolved:
