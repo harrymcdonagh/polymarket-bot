@@ -27,19 +27,21 @@ New DB methods:
 
 New method `Settler.refresh_open_positions()`:
 
-1. Fetch all unresolved dry-run trades (reuses existing query)
+1. Fetch all unresolved trades — both `dry_run` and `pending` status
 2. Deduplicate by `market_id` (one API call per market, not per trade)
 3. For each unique market_id, call Gamma API `GET /markets?conditionId={id}` to get current `outcomePrices`
-4. Update `trades.current_price` and `trades.price_updated_at` in the DB
-5. Calculate unrealised PnL per position
-6. Send Telegram position update if any open positions exist
+4. Handle partial failures gracefully — update prices for markets that succeed, skip those that fail, log warnings
+5. Update `trades.current_price` and `trades.price_updated_at` in the DB
+6. Calculate unrealised PnL per position
+7. Send Telegram position update (throttled to once per 6 hours)
 
-New method `Settler.calc_unrealised_pnl(side, amount, entry_price, current_yes_price, fee_rate=0.02)`:
+New standalone function `calc_unrealised_pnl(side, amount, entry_price, current_yes_price, fee_rate=0.02)` in `src/pnl.py`:
 
 - YES side: `shares = amount / entry_price`, unrealised = `shares * current_yes_price - amount - fee`
 - NO side: `shares = amount / (1 - entry_price)`, unrealised = `shares * (1 - current_yes_price) - amount - fee`
+- Guard: if `entry_price <= 0` or `entry_price >= 1`, return `-amount` (no valid shares)
 
-This mirrors the existing `calc_hypothetical_pnl` logic but uses the live market price instead of the binary $1/$0 resolved outcome.
+This mirrors the existing `calc_hypothetical_pnl` logic but uses the live market price instead of the binary $1/$0 resolved outcome. Extracted as a standalone function so both Settler and DashboardService can use it without coupling.
 
 Updated `Settler.run()` flow:
 1. **Refresh prices** (new) — update current prices, send position update
@@ -49,7 +51,7 @@ Updated `Settler.run()` flow:
 
 ### Telegram Messages
 
-**Per-run position update** — new `format_positions_update()` method on `TelegramNotifier`. Sent each settler run if there are open positions:
+**Position update (throttled)** — new `format_positions_update()` method on `TelegramNotifier`. Sent at most once every 6 hours (tracked via `_last_positions_update` timestamp on Settler, same pattern as `_last_summary_date`). Skipped if zero open positions:
 
 ```
 *Open Positions (3)*
@@ -103,9 +105,10 @@ New `DashboardService.get_open_positions()` method that reads from DB and comput
 | File | Change |
 |------|--------|
 | `src/db.py` | Migration for new columns. `update_trade_price()`, `get_open_positions_with_prices()` |
-| `src/settler/settler.py` | `refresh_open_positions()`, `calc_unrealised_pnl()`. Call refresh at start of `run()` |
+| `src/pnl.py` | New file. `calc_unrealised_pnl()` standalone function used by Settler and DashboardService |
+| `src/settler/settler.py` | `refresh_open_positions()`. Call refresh at start of `run()` |
 | `src/notifications/telegram.py` | `format_positions_update()` |
 | `src/dashboard/service.py` | `get_open_positions()` |
 | `src/dashboard/web.py` | `GET /api/positions`, add unrealised PnL to stats |
 
-No new files. No new dependencies. Uses existing Gamma API calls. Runs within existing settler loop cadence.
+One new file (`src/pnl.py`). No new dependencies. Uses existing Gamma API calls. Runs within existing settler loop cadence.
