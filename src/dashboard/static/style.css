@@ -334,7 +334,7 @@ main {
 
 .card:hover { border-color: var(--border-active); }
 
-.card > div, .card > .tab-content {
+.card > div:not(.log-feed):not(#lessons-list), .card > .tab-content {
     flex: 1;
     min-height: 0;
     display: flex;
@@ -413,13 +413,17 @@ main {
 
 .split-col .log-feed {
     flex: 1;
+    display: block;
     overflow-y: auto;
+    overflow-x: hidden;
     min-height: 0;
 }
 
 .split-col #lessons-list {
     flex: 1;
+    display: block;
     overflow-y: auto;
+    overflow-x: hidden;
     min-height: 0;
 }
 
