@@ -171,10 +171,29 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
             except (ValueError, TypeError):
                 pass
 
+        # Next settler countdown
+        settler_html = ""
+        next_settler = a.get("next_settler_at")
+        if next_settler:
+            try:
+                next_dt = datetime.fromisoformat(next_settler)
+                if next_dt.tzinfo is None:
+                    next_dt = next_dt.replace(tzinfo=timezone.utc)
+                remaining = (next_dt - datetime.now(timezone.utc)).total_seconds()
+                if remaining > 0:
+                    mins = int(remaining // 60)
+                    secs = int(remaining % 60)
+                    settler_html = f'<span class="activity-detail" style="margin-left:auto">Next settlement: {mins}m {secs:02d}s</span>'
+                else:
+                    settler_html = '<span class="activity-detail" style="margin-left:auto">Settlement running...</span>'
+            except (ValueError, TypeError):
+                pass
+
         return HTMLResponse(
             f'<div class="{dot_cls}"></div>'
             f'<span class="activity-label">{label}</span>'
             f'{detail_html}'
+            f'{settler_html}'
         )
 
     @app.get("/api/logs")

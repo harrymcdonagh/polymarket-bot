@@ -146,11 +146,27 @@ async def _loop(pipeline, dry_run: bool, interval: int, settle_interval: int = 1
 
 async def _settle_loop(settler, interval: int):
     logger = logging.getLogger("polymarket-bot")
+    from src.activity import write_activity
+    from datetime import datetime, timezone, timedelta
     while True:
         try:
             await settler.run()
         except Exception as e:
             logger.error(f"Settlement cycle failed: {e}")
+        next_at = (datetime.now(timezone.utc) + timedelta(seconds=interval)).isoformat()
+        write_activity("idle", "", "")
+        # Write next settler time to a separate key in activity file
+        import json, os
+        path = "data/activity.json"
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            data = {}
+        data["next_settler_at"] = next_at
+        data["settler_interval"] = interval
+        with open(path, "w") as f:
+            json.dump(data, f)
         logger.info(f"Sleeping {interval}s until next settlement check...")
         await asyncio.sleep(interval)
 
