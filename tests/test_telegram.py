@@ -84,3 +84,29 @@ async def test_send_calls_telegram_api(notifier):
         call_url = mock_client.post.call_args[0][0]
         assert "test-token" in call_url
         assert "sendMessage" in call_url
+
+
+def test_format_positions_update(notifier):
+    positions = [
+        {"question": "Will X?", "side": "YES", "price": 0.45,
+         "current_price": 0.52, "unrealised_pnl": 3.11},
+        {"question": "Will Y?", "side": "NO", "price": 0.70,
+         "current_price": 0.65, "unrealised_pnl": 1.42},
+    ]
+    msg = notifier.format_positions_update(positions, total_unrealised=4.53)
+    assert "Open Positions (2)" in msg
+    assert "Will X?" in msg
+    assert "YES" in msg
+    assert "$0.45" in msg
+    assert "$0.52" in msg
+    assert "+$3.11" in msg
+    assert "+$4.53" in msg
+
+
+def test_format_positions_update_negative_total(notifier):
+    positions = [
+        {"question": "Will X?", "side": "YES", "price": 0.60,
+         "current_price": 0.40, "unrealised_pnl": -3.53},
+    ]
+    msg = notifier.format_positions_update(positions, total_unrealised=-3.53)
+    assert "-$3.53" in msg

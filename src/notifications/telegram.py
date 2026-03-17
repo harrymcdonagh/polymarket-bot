@@ -84,5 +84,18 @@ class TelegramNotifier:
             f"Top edge: {top_edge:.1%} on {top_market}"
         )
 
+    def format_positions_update(self, positions: list[dict], total_unrealised: float) -> str:
+        total_str = f"+${total_unrealised:.2f}" if total_unrealised >= 0 else f"-${abs(total_unrealised):.2f}"
+        lines = [f"*Open Positions ({len(positions)})*\n"]
+        for p in positions:
+            pnl = p["unrealised_pnl"]
+            pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
+            lines.append(
+                f"{p['question']}\n"
+                f"  {p['side']} @ ${p['price']:.2f} -> ${p['current_price']:.2f} | {pnl_str} unrealised"
+            )
+        lines.append(f"\n*Total unrealised: {total_str}*")
+        return "\n".join(lines)
+
     def format_startup(self) -> str:
         return "*Bot Started*\nPolymarket bot is online."
