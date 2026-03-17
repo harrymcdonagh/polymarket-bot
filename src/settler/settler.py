@@ -24,9 +24,8 @@ class Settler:
         self._last_summary_date: str | None = None
         self._last_positions_update: str | None = None
 
-    async def check_resolution(self, condition_id: str, trade_id: int | None = None) -> str | None:
-        """Check if a market has resolved. Returns 'YES'/'NO' or None if still active.
-        Also flags trades as resolution_pending when market is closed but not yet resolved."""
+    async def check_resolution(self, condition_id: str) -> str | None:
+        """Check if a market has resolved. Returns 'YES'/'NO' or None if still active."""
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 # Query by conditionId parameter — the URL path expects Gamma's
@@ -49,24 +48,7 @@ class Settler:
                 else:
                     data = results
 
-            is_resolved = data.get("resolved", False)
-
-            # Detect dispute window: outcome prices near 0/1 but not yet resolved
-            # means an outcome has been proposed and is awaiting finalization
-            pending = 0
-            if not is_resolved and trade_id is not None:
-                try:
-                    prices_raw = json.loads(data.get("outcomePrices", "[]"))
-                    if len(prices_raw) >= 2:
-                        yp = float(prices_raw[0])
-                        # Outcome proposed when price is effectively 0 or 1
-                        if yp <= 0.01 or yp >= 0.99:
-                            pending = 1
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    pass
-                self.db.set_resolution_pending(trade_id, pending)
-
-            if not is_resolved:
+            if not data.get("resolved", False):
                 return None
 
             prices_str = data.get("outcomePrices", "[]")
@@ -230,7 +212,7 @@ class Settler:
         logger.info(f"Checking {len(trades)} unresolved dry-run trades")
 
         for trade in trades:
-            outcome = await self.check_resolution(trade["market_id"], trade_id=trade["id"])
+            outcome = await self.check_resolution(trade["market_id"])
             if outcome is None:
                 continue
 

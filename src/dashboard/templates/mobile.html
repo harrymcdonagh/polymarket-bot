@@ -387,7 +387,7 @@
             var pnlCls = pnl !== null ? (pnl >= 0 ? 'pnl-pos' : 'pnl-neg') : 'pnl-na';
 
             html += '<div class="trade-card">' +
-                '<div class="trade-card-question">' + name + (t.resolution_pending ? ' <span class="tag-resolving">RESOLVING</span>' : '') + '</div>' +
+                '<div class="trade-card-question">' + name + '</div>' +
                 '<div class="trade-card-row">' +
                     '<span class="side-badge ' + sideCls + '">' + esc(t.side) + '</span>' +
                     '<span class="trade-amount">$' + t.amount.toFixed(0) + '</span>' +

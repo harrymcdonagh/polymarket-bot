@@ -149,7 +149,6 @@ li strong { display: inline-block; color: var(--blue); font-family: var(--font-d
 .tag-loop { color: var(--blue); margin-left: 4px; font-weight: 600; font-size: 0.55rem; }
 .tag-scan { color: var(--amber); margin-left: 4px; font-weight: 600; font-size: 0.55rem; }
 .tag-err { color: var(--red); margin-left: 4px; font-weight: 600; font-size: 0.55rem; }
-.tag-resolving { color: var(--amber); font-size: 9px; font-weight: 700; background: var(--amber-dim); padding: 1px 4px; border-radius: 2px; vertical-align: middle; }
 
 /* ── Pager ── */
 .pager { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
