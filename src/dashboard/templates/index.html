@@ -239,11 +239,9 @@
     loadTrades(1);
     setInterval(() => loadTrades(), 10000);
 
-    /* ── Markets (paginated) ── */
-    let marketsPage = 1;
-    async function loadMarkets(page) {
-        marketsPage = page || marketsPage;
-        const resp = await fetch(`/api/markets?page=${marketsPage}&per_page=12`);
+    /* ── Markets (scrollable, no pagination) ── */
+    async function loadMarkets() {
+        const resp = await fetch('/api/markets?page=1&per_page=200');
         const data = await resp.json();
         const el = document.getElementById('markets-list');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No flagged markets.</p>'; return; }
@@ -272,11 +270,10 @@
             </tr>`;
         });
         html += '</table></div>';
-        html += renderPager(data.page, data.total, data.per_page, 'loadMarkets');
         el.innerHTML = html;
     }
-    loadMarkets(1);
-    setInterval(() => loadMarkets(), 10000);
+    loadMarkets();
+    setInterval(loadMarkets, 10000);
 
     /* ── Settings ── */
     document.getElementById('settings-form').addEventListener('change', async (e) => {
