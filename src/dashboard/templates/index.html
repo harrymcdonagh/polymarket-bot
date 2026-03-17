@@ -36,17 +36,11 @@
                 <div id="trades-table"></div>
             </section>
 
-            <!-- Right column: PnL Chart (top), Open Positions below -->
-            <div class="split-col">
-                <section class="card chart-card">
-                    <h2>PnL History</h2>
-                    <canvas id="pnl-chart"></canvas>
-                </section>
-                <section class="card">
-                    <h2>Open Positions</h2>
-                    <div id="positions-table"></div>
-                </section>
-            </div>
+            <!-- Right column: PnL Chart (top) -->
+            <section class="card chart-card">
+                <h2>PnL History</h2>
+                <canvas id="pnl-chart"></canvas>
+            </section>
 
             <section class="card">
                 <h2>Flagged Markets</h2>
@@ -189,43 +183,6 @@
     refreshChart();
     setInterval(refreshChart, 30000);
 
-    /* ── Open Positions ── */
-    async function loadPositions() {
-        const resp = await fetch('/api/positions');
-        const data = await resp.json();
-        const el = document.getElementById('positions-table');
-        if (data.length === 0) { el.innerHTML = '<p class="muted">No open positions.</p>'; return; }
-        let totalUr = 0;
-        let html = '<div class="table-scroll"><table><colgroup><col style="width:auto"><col style="width:40px"><col style="width:50px"><col style="width:50px"><col style="width:65px"></colgroup><tr><th>Market</th><th>Side</th><th>Entry</th><th>Now</th><th>PnL</th></tr>';
-        data.forEach(p => {
-            const name = esc(p.question || p.market_id || '');
-            const sideStyle = p.side === 'YES' ? 'color:var(--neon)' : 'color:var(--red)';
-            const pnl = p.unrealised_pnl;
-            if (pnl !== null) totalUr += pnl;
-            const pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '\u2014';
-            const pnlStyle = pnl !== null ? (pnl >= 0 ? 'color:var(--neon)' : 'color:var(--red)') : 'color:var(--text-ghost)';
-            const nowPrice = p.current_price !== null ? '$' + p.current_price.toFixed(2) : '\u2014';
-            const priceChange = p.current_price !== null && p.entry_price !== null
-                ? (p.side === 'YES' ? p.current_price - p.entry_price : p.entry_price - p.current_price)
-                : 0;
-            const nowStyle = priceChange >= 0 ? 'color:var(--neon)' : 'color:var(--red)';
-            html += `<tr>
-                <td>${name}</td>
-                <td style="${sideStyle};font-weight:600">${esc(p.side)}</td>
-                <td>$${p.entry_price.toFixed(2)}</td>
-                <td style="${nowStyle};font-weight:600">${nowPrice}</td>
-                <td style="${pnlStyle};font-weight:600">${pnlStr}</td>
-            </tr>`;
-        });
-        html += '</table></div>';
-        const totalColor = totalUr >= 0 ? 'var(--neon)' : 'var(--red)';
-        const totalSign = totalUr >= 0 ? '+' : '';
-        html += `<div style="text-align:right;padding:0.3rem 0.5rem;font-size:0.7rem;color:${totalColor};font-weight:600">Total: ${totalSign}$${Math.abs(totalUr).toFixed(2)}</div>`;
-        el.innerHTML = html;
-    }
-    loadPositions();
-    setInterval(loadPositions, 30000);
-
     /* ── Pagination helper ── */
     function renderPager(page, total, perPage, onPage) {
         const totalPages = Math.ceil(total / perPage);
@@ -239,23 +196,61 @@
     }
 
     /* ── Trades (scrollable, no pagination) ── */
+    function calcUnrealisedPnl(side, amount, entryPrice, currentPrice) {
+        if (entryPrice <= 0 || entryPrice >= 1 || currentPrice == null) return null;
+        const fee = amount * 0.02;
+        if (side === 'YES') {
+            const shares = amount / entryPrice;
+            return shares * currentPrice - amount - fee;
+        } else {
+            const noPrice = 1.0 - entryPrice;
+            const shares = amount / noPrice;
+            const curNo = 1.0 - currentPrice;
+            return shares * curNo - amount - fee;
+        }
+    }
+
     async function loadTrades() {
         const resp = await fetch('/api/trades?page=1&per_page=200');
         const data = await resp.json();
         const el = document.getElementById('trades-table');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
-        let html = '<div class="table-scroll"><table><colgroup><col style="width:auto"><col style="width:50px"><col style="width:55px"><col style="width:70px"><col style="width:60px"></colgroup><tr><th>Market</th><th>Side</th><th>Amt</th><th>Status</th><th>PnL</th></tr>';
+        let html = '<div class="table-scroll"><table><colgroup><col style="width:auto"><col style="width:40px"><col style="width:45px"><col style="width:45px"><col style="width:45px"><col style="width:60px"></colgroup><tr><th>Market</th><th>Side</th><th>Entry</th><th>Now</th><th>Status</th><th>PnL</th></tr>';
         data.items.forEach(t => {
             const name = esc(t.question || t.market_id || '');
-            const pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
-            const pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '\u2014';
-            const pnlStyle = pnl !== null ? (pnl >= 0 ? 'color:var(--neon)' : 'color:var(--red)') : 'color:var(--text-ghost)';
             const sideStyle = t.side === 'YES' ? 'color:var(--neon)' : 'color:var(--red)';
             const statusColor = t.status === 'dry_run' ? 'var(--amber)' : t.status === 'dry_run_settled' ? 'var(--blue)' : 'var(--text-dim)';
+            const isOpen = t.status === 'dry_run' || t.status === 'pending';
+
+            // Entry price
+            const entryStr = '$' + t.price.toFixed(2);
+
+            // Current price (only for open trades)
+            let nowStr = '\u2014';
+            let nowStyle = 'color:var(--text-ghost)';
+            if (isOpen && t.current_price != null) {
+                nowStr = '$' + t.current_price.toFixed(2);
+                const delta = t.side === 'YES' ? t.current_price - t.price : t.price - t.current_price;
+                nowStyle = delta >= 0 ? 'color:var(--neon)' : 'color:var(--red)';
+            }
+
+            // PnL: settled uses pnl/hypothetical_pnl, open uses unrealised calc
+            let pnl = null;
+            let pnlLabel = '';
+            if (isOpen && t.current_price != null) {
+                pnl = calcUnrealisedPnl(t.side, t.amount, t.price, t.current_price);
+                pnlLabel = ' ur';
+            } else {
+                pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
+            }
+            const pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) + pnlLabel : '\u2014';
+            const pnlStyle = pnl !== null ? (pnl >= 0 ? 'color:var(--neon)' : 'color:var(--red)') : 'color:var(--text-ghost)';
+
             html += `<tr>
                 <td>${name}</td>
                 <td style="${sideStyle};font-weight:600">${esc(t.side)}</td>
-                <td>$${t.amount.toFixed(0)}</td>
+                <td>${entryStr}</td>
+                <td style="${nowStyle};font-weight:600">${nowStr}</td>
                 <td style="color:${statusColor}">${esc(t.status)}</td>
                 <td style="${pnlStyle};font-weight:600">${pnlStr}</td>
             </tr>`;
