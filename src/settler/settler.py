@@ -111,10 +111,26 @@ class Settler:
                 else:
                     data = results
 
+            # Try outcomePrices first (JSON string like '["0.45","0.55"]')
             prices_str = data.get("outcomePrices", "[]")
-            prices = json.loads(prices_str)
+            try:
+                prices = json.loads(prices_str) if isinstance(prices_str, str) else prices_str
+            except (json.JSONDecodeError, TypeError):
+                prices = []
             if len(prices) >= 2:
-                return float(prices[0])
+                price = float(prices[0])
+                if 0 < price < 1:
+                    return price
+
+            # Fallback: try bestBid or lastTradePrice
+            for field in ("bestBid", "lastTradePrice"):
+                val = data.get(field)
+                if val is not None:
+                    price = float(val)
+                    if 0 < price < 1:
+                        return price
+
+            logger.debug(f"No valid price for {condition_id}: outcomePrices={prices_str}")
             return None
         except Exception as e:
             logger.warning(f"Price fetch failed for {condition_id}: {e}")
@@ -133,6 +149,8 @@ class Settler:
             price = await self.fetch_current_price(market_id)
             if price is not None:
                 prices[market_id] = price
+
+        logger.info(f"Fetched prices for {len(prices)}/{len(market_ids)} markets")
 
         # Update DB and build position summaries
         positions = []
