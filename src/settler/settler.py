@@ -92,40 +92,33 @@ class Settler:
                 return -amount - fee
 
     async def _fetch_bulk_prices(self, condition_ids: set[str]) -> dict[str, float]:
-        """Fetch current prices for multiple markets via Gamma bulk API (single paginated call)."""
+        """Fetch current prices for open positions by querying each conditionId directly."""
         prices: dict[str, float] = {}
         try:
             async with httpx.AsyncClient(timeout=30) as client:
-                offset = 0
-                while True:
-                    resp = await client.get(
-                        f"{self.gamma_url}/markets",
-                        params={"active": "true", "closed": "false",
-                                "limit": 100, "offset": offset},
-                    )
-                    if resp.status_code != 200:
-                        logger.warning(f"Bulk price fetch failed: {resp.status_code}")
-                        break
-                    raw = resp.json()
-                    markets = (await raw) if hasattr(raw, "__await__") else raw
-                    if not markets:
-                        break
-                    for m in markets:
-                        cid = m.get("conditionId") or m.get("condition_id", "")
-                        if cid not in condition_ids:
+                for cid in condition_ids:
+                    try:
+                        resp = await client.get(
+                            f"{self.gamma_url}/markets",
+                            params={"conditionId": cid},
+                        )
+                        if resp.status_code != 200:
                             continue
-                        try:
-                            outcome = json.loads(m.get("outcomePrices", "[]"))
-                            if len(outcome) >= 2:
-                                p = float(outcome[0])
-                                if 0 < p < 1:
-                                    prices[cid] = p
-                        except (json.JSONDecodeError, TypeError, ValueError):
-                            continue
-                    # Stop early if we found all markets or no more results
-                    if len(prices) >= len(condition_ids) or len(markets) < 100:
-                        break
-                    offset += 100
+                        raw = resp.json()
+                        results = (await raw) if hasattr(raw, "__await__") else raw
+                        if isinstance(results, list):
+                            if not results:
+                                continue
+                            data = results[0]
+                        else:
+                            data = results
+                        outcome = json.loads(data.get("outcomePrices", "[]"))
+                        if len(outcome) >= 2:
+                            p = float(outcome[0])
+                            if 0 < p < 1:
+                                prices[cid] = p
+                    except Exception:
+                        continue
         except Exception as e:
             logger.warning(f"Bulk price fetch error: {e}")
         return prices
