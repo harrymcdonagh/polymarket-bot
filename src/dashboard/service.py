@@ -95,7 +95,42 @@ class DashboardService:
         return self.db.get_flagged_markets_with_predictions(limit=30)
 
     def get_pnl_history(self) -> list[dict]:
-        return self.db.get_pnl_history()
+        from src.pnl import calc_unrealised_pnl
+        history = self.db.get_pnl_history()
+
+        # Add today's unrealised PnL as a live data point
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        open_pos = self.db.get_open_positions_with_prices()
+        unrealised = sum(
+            calc_unrealised_pnl(
+                side=t["side"], amount=t["amount"],
+                entry_price=t["price"], current_yes_price=t["current_price"],
+            )
+            for t in open_pos if t.get("current_price") is not None and t["current_price"] > 0
+        )
+        settled_cumulative = history[-1]["cumulative_pnl"] if history else 0.0
+
+        # If today already has a settled entry, add unrealised on top
+        if history and history[-1]["date"] == today:
+            history[-1]["unrealised_pnl"] = round(unrealised, 2)
+            history[-1]["total_pnl"] = round(history[-1]["cumulative_pnl"] + unrealised, 2)
+        else:
+            history.append({
+                "date": today,
+                "daily_pnl": 0,
+                "cumulative_pnl": settled_cumulative,
+                "unrealised_pnl": round(unrealised, 2),
+                "total_pnl": round(settled_cumulative + unrealised, 2),
+            })
+
+        # Backfill total_pnl for older entries (no unrealised)
+        for entry in history:
+            if "total_pnl" not in entry:
+                entry["total_pnl"] = entry["cumulative_pnl"]
+                entry["unrealised_pnl"] = 0
+
+        return history
 
     def get_open_positions(self) -> list[dict]:
         from src.pnl import calc_unrealised_pnl

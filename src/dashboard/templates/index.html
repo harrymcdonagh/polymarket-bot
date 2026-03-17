@@ -100,40 +100,66 @@
         const resp = await fetch('/api/pnl-history');
         const data = await resp.json();
         const labels = data.map(d => d.date);
-        const values = data.map(d => d.cumulative_pnl);
+        const settled = data.map(d => d.cumulative_pnl);
+        const total = data.map(d => d.total_pnl);
 
         if (!pnlChart) {
             const ctx = document.getElementById('pnl-chart').getContext('2d');
-            const gradient = ctx.createLinearGradient(0, 0, 0, 180);
-            gradient.addColorStop(0, 'rgba(0, 230, 138, 0.12)');
-            gradient.addColorStop(0.6, 'rgba(0, 230, 138, 0.02)');
-            gradient.addColorStop(1, 'rgba(0, 230, 138, 0)');
+            const gradientTotal = ctx.createLinearGradient(0, 0, 0, 180);
+            gradientTotal.addColorStop(0, 'rgba(96, 165, 250, 0.12)');
+            gradientTotal.addColorStop(0.6, 'rgba(96, 165, 250, 0.02)');
+            gradientTotal.addColorStop(1, 'rgba(96, 165, 250, 0)');
 
             pnlChart = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels,
-                    datasets: [{
-                        label: 'Cumulative PnL ($)',
-                        data: values,
-                        borderColor: '#00E68A',
-                        borderWidth: 1.5,
-                        backgroundColor: gradient,
-                        fill: true,
-                        tension: 0.35,
-                        pointRadius: 0,
-                        pointHoverRadius: 4,
-                        pointHoverBackgroundColor: '#00E68A',
-                        pointHoverBorderColor: '#0B0E14',
-                        pointHoverBorderWidth: 2,
-                    }]
+                    datasets: [
+                        {
+                            label: 'Total (settled + unrealised)',
+                            data: total,
+                            borderColor: '#60A5FA',
+                            borderWidth: 1.5,
+                            backgroundColor: gradientTotal,
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            pointHoverBackgroundColor: '#60A5FA',
+                            pointHoverBorderColor: '#0B0E14',
+                            pointHoverBorderWidth: 2,
+                        },
+                        {
+                            label: 'Settled PnL',
+                            data: settled,
+                            borderColor: '#00E68A',
+                            borderWidth: 1.5,
+                            borderDash: [4, 3],
+                            fill: false,
+                            tension: 0.35,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            pointHoverBackgroundColor: '#00E68A',
+                            pointHoverBorderColor: '#0B0E14',
+                            pointHoverBorderWidth: 2,
+                        },
+                    ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     interaction: { intersect: false, mode: 'index' },
                     plugins: {
-                        legend: { display: false },
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            align: 'end',
+                            labels: {
+                                boxWidth: 12, boxHeight: 2, padding: 8,
+                                font: { family: 'JetBrains Mono', size: 9 },
+                                color: '#566175',
+                            }
+                        },
                         tooltip: {
                             backgroundColor: '#131820',
                             borderColor: '#1C2333',
@@ -141,12 +167,12 @@
                             titleFont: { family: 'Bricolage Grotesque', size: 10, weight: '600' },
                             bodyFont: { family: 'JetBrains Mono', size: 11, weight: '500' },
                             titleColor: '#566175',
-                            bodyColor: '#00E68A',
+                            bodyColor: '#E6EDF3',
                             padding: { x: 8, y: 6 },
                             cornerRadius: 4,
-                            displayColors: false,
+                            displayColors: true,
                             callbacks: {
-                                label: ctx => `$${ctx.parsed.y.toFixed(2)}`
+                                label: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toFixed(2)}`
                             }
                         }
                     },
@@ -176,7 +202,8 @@
             });
         } else {
             pnlChart.data.labels = labels;
-            pnlChart.data.datasets[0].data = values;
+            pnlChart.data.datasets[0].data = total;
+            pnlChart.data.datasets[1].data = settled;
             pnlChart.update('none');
         }
     }
