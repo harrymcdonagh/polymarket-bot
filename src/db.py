@@ -263,9 +263,13 @@ class Database:
         """Daily PnL series with cumulative totals for charting."""
         conn = self._conn()
         rows = conn.execute(
-            """SELECT DATE(settled_at) as date, SUM(pnl) as daily_pnl
-               FROM trades WHERE status = 'settled' AND settled_at IS NOT NULL
-               GROUP BY DATE(settled_at) ORDER BY date"""
+            """SELECT DATE(COALESCE(settled_at, resolved_at)) as date,
+                      SUM(COALESCE(pnl, hypothetical_pnl)) as daily_pnl
+               FROM trades
+               WHERE status IN ('settled', 'dry_run_settled')
+                 AND COALESCE(settled_at, resolved_at) IS NOT NULL
+               GROUP BY DATE(COALESCE(settled_at, resolved_at))
+               ORDER BY date"""
         ).fetchall()
         history = []
         cumulative = 0.0
