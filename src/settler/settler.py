@@ -48,7 +48,11 @@ class Settler:
                 else:
                     data = results
 
-            if not data.get("resolved", False):
+            resolved = data.get("resolved", False)
+            closed = data.get("closed", False)
+            if not resolved:
+                if closed:
+                    logger.info(f"Market {condition_id[:16]}… is closed but not yet resolved")
                 return None
 
             prices_str = data.get("outcomePrices", "[]")
