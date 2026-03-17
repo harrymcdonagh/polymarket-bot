@@ -469,6 +469,9 @@ th {
     z-index: 1;
 }
 
+th.sortable { cursor: pointer; user-select: none; transition: color 0.15s; }
+th.sortable:hover { color: var(--text-secondary); }
+
 td {
     padding: 0.3rem 0.4rem;
     border-bottom: 1px solid var(--border-subtle);

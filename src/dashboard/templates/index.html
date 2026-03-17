@@ -245,15 +245,73 @@
         }
     }
 
-    async function loadTrades() {
-        const resp = await fetch('/api/trades?page=1&per_page=200');
-        const text = await resp.text();
-        if (unchanged('trades', text)) return;
-        const data = JSON.parse(text);
+    /* ── Sortable trades ── */
+    let _tradesData = [];
+    let _tradeSort = { col: null, asc: true };
+
+    function sortTrades(col) {
+        if (_tradeSort.col === col) {
+            _tradeSort.asc = !_tradeSort.asc;
+        } else {
+            _tradeSort.col = col;
+            _tradeSort.asc = true;
+        }
+        renderTrades();
+    }
+
+    function getTradeVal(t, col) {
+        const isOpen = t.status === 'dry_run' || t.status === 'pending';
+        switch(col) {
+            case 'market': return (t.question || t.market_id || '').toLowerCase();
+            case 'side': return t.side;
+            case 'cost': return t.amount;
+            case 'entry': return t.price;
+            case 'now': return (isOpen && t.current_price != null) ? t.current_price : -999;
+            case 'value': {
+                if (isOpen && t.current_price != null && t.current_price > 0) {
+                    let shares = t.side === 'YES' ? t.amount / t.price : t.amount / (1.0 - t.price);
+                    let cur = t.side === 'YES' ? t.current_price : 1.0 - t.current_price;
+                    return shares * cur;
+                }
+                if (!isOpen) {
+                    const sp = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
+                    if (sp !== null) return t.amount + sp;
+                }
+                return -999;
+            }
+            case 'pnl': {
+                if (isOpen && t.current_price != null && t.current_price > 0)
+                    return calcUnrealisedPnl(t.side, t.amount, t.price, t.current_price) || 0;
+                const p = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
+                return p !== null ? p : -999;
+            }
+            default: return 0;
+        }
+    }
+
+    function renderTrades() {
         const el = document.getElementById('trades-table');
-        if (data.total === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
-        let html = '<div class="table-scroll"><table class="trades-tbl"><tr><th>Market</th><th>Side</th><th>Cost</th><th>Entry</th><th>Now</th><th>Value</th><th>PnL</th></tr>';
-        data.items.forEach(t => {
+        if (_tradesData.length === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
+
+        let items = [..._tradesData];
+        if (_tradeSort.col) {
+            items.sort((a, b) => {
+                let va = getTradeVal(a, _tradeSort.col), vb = getTradeVal(b, _tradeSort.col);
+                if (typeof va === 'string') return _tradeSort.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+                return _tradeSort.asc ? va - vb : vb - va;
+            });
+        }
+
+        const cols = ['market','side','cost','entry','now','value','pnl'];
+        const labels = ['Market','Side','Cost','Entry','Now','Value','PnL'];
+        let headerHtml = cols.map((c,i) => {
+            let arrow = '';
+            if (_tradeSort.col === c) arrow = _tradeSort.asc ? ' \u25B2' : ' \u25BC';
+            return `<th class="sortable" onclick="sortTrades('${c}')">${labels[i]}${arrow}</th>`;
+        }).join('');
+
+        let html = '<div class="table-scroll"><table class="trades-tbl"><tr>' + headerHtml + '</tr>';
+        items.forEach(t => {
             const name = esc(t.question || t.market_id || '');
             const sideStyle = t.side === 'YES' ? 'color:var(--neon)' : 'color:var(--red)';
             const isOpen = t.status === 'dry_run' || t.status === 'pending';
@@ -323,6 +381,15 @@
         });
         html += '</table></div>';
         el.innerHTML = html;
+    }
+
+    async function loadTrades() {
+        const resp = await fetch('/api/trades?page=1&per_page=200');
+        const text = await resp.text();
+        if (unchanged('trades', text)) return;
+        const data = JSON.parse(text);
+        _tradesData = data.items || [];
+        renderTrades();
     }
     loadTrades();
     setInterval(loadTrades, 10000);
