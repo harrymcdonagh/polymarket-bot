@@ -216,7 +216,7 @@
         const data = await resp.json();
         const el = document.getElementById('trades-table');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
-        let html = '<table><colgroup><col style="width:auto"><col style="width:50px"><col style="width:55px"><col style="width:70px"><col style="width:60px"></colgroup><tr><th>Market</th><th>Side</th><th>Amt</th><th>Status</th><th>PnL</th></tr>';
+        let html = '<div class="table-scroll"><table><colgroup><col style="width:auto"><col style="width:50px"><col style="width:55px"><col style="width:70px"><col style="width:60px"></colgroup><tr><th>Market</th><th>Side</th><th>Amt</th><th>Status</th><th>PnL</th></tr>';
         data.items.forEach(t => {
             const name = esc(t.question || t.market_id || '');
             const pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
@@ -232,7 +232,7 @@
                 <td style="${pnlStyle};font-weight:600">${pnlStr}</td>
             </tr>`;
         });
-        html += '</table>';
+        html += '</table></div>';
         html += renderPager(data.page, data.total, data.per_page, 'loadTrades');
         el.innerHTML = html;
     }
@@ -247,7 +247,7 @@
         const data = await resp.json();
         const el = document.getElementById('markets-list');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No flagged markets.</p>'; return; }
-        let html = '<table><colgroup><col style="width:auto"><col style="width:45px"><col style="width:110px"><col style="width:50px"></colgroup><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th></tr>';
+        let html = '<div class="table-scroll"><table><colgroup><col style="width:auto"><col style="width:45px"><col style="width:110px"><col style="width:50px"></colgroup><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th></tr>';
         data.items.forEach(m => {
             const price = m.yes_price.toFixed(2);
             const priceColor = m.yes_price > 0.7 ? 'var(--neon)' : m.yes_price < 0.3 ? 'var(--red)' : 'var(--text-secondary)';
@@ -271,7 +271,7 @@
                 <td>${edgeHtml}</td>
             </tr>`;
         });
-        html += '</table>';
+        html += '</table></div>';
         html += renderPager(data.page, data.total, data.per_page, 'loadMarkets');
         el.innerHTML = html;
     }
