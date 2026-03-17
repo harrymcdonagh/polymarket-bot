@@ -136,6 +136,8 @@ class Database:
             ("hypothetical_pnl", "REAL"),
             ("resolved_at", "TEXT"),
             ("predicted_prob", "REAL"),
+            ("current_price", "REAL"),
+            ("price_updated_at", "TEXT"),
         ]
         for col_name, col_type in migrations:
             if col_name not in existing:
@@ -438,6 +440,31 @@ class Database:
             (resolved_outcome, hypothetical_pnl, now, trade_id),
         )
         conn.commit()
+
+    def update_trade_price(self, trade_id: int, current_price: float):
+        conn = self._conn()
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "UPDATE trades SET current_price = ?, price_updated_at = ? WHERE id = ?",
+            (current_price, now, trade_id),
+        )
+        conn.commit()
+
+    def get_open_positions_with_prices(self) -> list[dict]:
+        """Get all unresolved trades (dry_run + pending) with current price and market question."""
+        conn = self._conn()
+        rows = conn.execute(
+            """SELECT t.*, ms.question
+               FROM trades t
+               LEFT JOIN (
+                   SELECT condition_id, question,
+                          ROW_NUMBER() OVER (PARTITION BY condition_id ORDER BY snapshot_at DESC) as rn
+                   FROM market_snapshots
+               ) ms ON t.market_id = ms.condition_id AND ms.rn = 1
+               WHERE t.status IN ('dry_run', 'pending') AND t.resolved_outcome IS NULL
+               ORDER BY t.executed_at DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def get_dry_run_trade_count(self) -> int:
         conn = self._conn()

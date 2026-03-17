@@ -163,3 +163,48 @@ def test_save_prediction_with_features_json(tmp_db):
     pred = db.get_prediction_for_market("mkt1")
     assert pred["features_json"] is not None
     assert json.loads(pred["features_json"])["yes_price"] == 0.5
+
+
+def test_migrate_adds_current_price_columns(tmp_db):
+    db, db_path = tmp_db
+    conn = sqlite3.connect(db_path)
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(trades)").fetchall()]
+    conn.close()
+    assert "current_price" in cols
+    assert "price_updated_at" in cols
+
+
+def test_update_trade_price(tmp_db):
+    db, _ = tmp_db
+    db.save_trade("mkt1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
+    db.update_trade_price(1, 0.65)
+    conn = db._conn()
+    row = conn.execute("SELECT current_price, price_updated_at FROM trades WHERE id = 1").fetchone()
+    assert row["current_price"] == 0.65
+    assert row["price_updated_at"] is not None
+
+
+def test_get_open_positions_with_prices(tmp_db):
+    db, _ = tmp_db
+    from src.models import ScannedMarket
+    from datetime import datetime, timezone
+    market = ScannedMarket(
+        condition_id="mkt1", question="Will it rain?", slug="rain",
+        token_yes_id="ty", token_no_id="tn",
+        yes_price=0.5, no_price=0.5, spread=0.01,
+        liquidity=10000, volume_24h=5000,
+        end_date=None, days_to_resolution=10,
+        flags=[], scanned_at=datetime.now(timezone.utc),
+    )
+    db.save_market_snapshots_batch([market])
+    db.save_trade("mkt1", "YES", 10.0, 0.50, status="dry_run", predicted_prob=0.7)
+    db.update_trade_price(1, 0.65)
+    db.save_trade("mkt2", "NO", 5.0, 0.60, status="pending", predicted_prob=0.3)
+    db.save_trade("mkt3", "YES", 8.0, 0.40, status="dry_run_settled", predicted_prob=0.6)
+    positions = db.get_open_positions_with_prices()
+    assert len(positions) == 2
+    pos1 = next(p for p in positions if p["market_id"] == "mkt1")
+    assert pos1["current_price"] == 0.65
+    assert pos1["question"] == "Will it rain?"
+    pos2 = next(p for p in positions if p["market_id"] == "mkt2")
+    assert pos2["question"] is None
