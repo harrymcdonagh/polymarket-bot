@@ -393,7 +393,12 @@ main {
 }
 
 /* Tabbed card */
-.tabbed-card { padding: 0.5rem; }
+.tabbed-card {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
 .tabbed-card h2 { display: none; }
 
 .tabbed-card .tab-bar {
@@ -402,8 +407,7 @@ main {
     gap: 0;
     flex-shrink: 0;
     border-bottom: 1px solid var(--border);
-    margin-bottom: 0;
-    line-height: 1;
+    padding: 0.2rem 0.4rem 0;
 }
 
 .tabbed-card .tab-bar button {
@@ -414,12 +418,11 @@ main {
     background: none;
     border: none;
     border-bottom: 1px solid transparent;
-    padding: 0.15rem 0.4rem;
+    padding: 0.1rem 0.4rem 0.15rem;
     cursor: pointer;
     transition: all 0.15s var(--ease);
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    line-height: 1;
 }
 
 .tabbed-card .tab-bar button:hover { color: var(--text-secondary); }
@@ -442,13 +445,23 @@ main {
     flex-direction: column;
     flex: 1;
     min-height: 0;
+    overflow: hidden;
 }
 
-.tabbed-card .log-feed,
+.tabbed-card .log-feed {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    padding: 0.25rem 0.4rem;
+    mask-image: none;
+    -webkit-mask-image: none;
+}
+
 .tabbed-card #lessons-list {
     flex: 1;
     overflow-y: auto;
     min-height: 0;
+    padding: 0.25rem 0.4rem;
 }
 
 /* ══════════════════════════════════════
