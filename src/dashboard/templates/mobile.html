@@ -198,7 +198,6 @@
         const resp = await fetch('/api/pnl-history');
         const data = await resp.json();
         const labels = data.map(function(d) { return d.date; });
-        const settled = data.map(function(d) { return d.cumulative_pnl; });
         const total = data.map(function(d) { return d.total_pnl; });
         const canvas = document.getElementById('pnl-chart');
         if (!canvas) return;
@@ -206,9 +205,9 @@
         if (!pnlChart) {
             var ctx = canvas.getContext('2d');
             var gradientTotal = ctx.createLinearGradient(0, 0, 0, 200);
-            gradientTotal.addColorStop(0, 'rgba(96, 165, 250, 0.12)');
-            gradientTotal.addColorStop(0.6, 'rgba(96, 165, 250, 0.02)');
-            gradientTotal.addColorStop(1, 'rgba(96, 165, 250, 0)');
+            gradientTotal.addColorStop(0, 'rgba(245, 158, 11, 0.12)');
+            gradientTotal.addColorStop(0.6, 'rgba(245, 158, 11, 0.02)');
+            gradientTotal.addColorStop(1, 'rgba(245, 158, 11, 0)');
 
             pnlChart = new Chart(ctx, {
                 type: 'line',
@@ -216,30 +215,16 @@
                     labels: labels,
                     datasets: [
                         {
-                            label: 'Total (settled + unrealised)',
+                            label: 'Total PnL (closed + unrealised)',
                             data: total,
-                            borderColor: '#60A5FA',
+                            borderColor: '#F59E0B',
                             borderWidth: 1.5,
                             backgroundColor: gradientTotal,
                             fill: true,
                             tension: 0.35,
                             pointRadius: 0,
                             pointHoverRadius: 4,
-                            pointHoverBackgroundColor: '#60A5FA',
-                            pointHoverBorderColor: '#0B0E14',
-                            pointHoverBorderWidth: 2,
-                        },
-                        {
-                            label: 'Settled PnL',
-                            data: settled,
-                            borderColor: '#00E68A',
-                            borderWidth: 1.5,
-                            borderDash: [4, 3],
-                            fill: false,
-                            tension: 0.35,
-                            pointRadius: 0,
-                            pointHoverRadius: 4,
-                            pointHoverBackgroundColor: '#00E68A',
+                            pointHoverBackgroundColor: '#F59E0B',
                             pointHoverBorderColor: '#0B0E14',
                             pointHoverBorderWidth: 2,
                         }
@@ -294,7 +279,6 @@
         } else {
             pnlChart.data.labels = labels;
             pnlChart.data.datasets[0].data = total;
-            pnlChart.data.datasets[1].data = settled;
             pnlChart.update('none');
         }
     }
@@ -501,19 +485,24 @@
                 ? (s.prediction_accuracy.accuracy * 100).toFixed(0) + '%'
                 : '\u2014';
 
+            var totalPnl = s.total_pnl + (s.unrealised_pnl || 0);
+            var totalPnlColor = totalPnl >= 0 ? 'var(--neon)' : 'var(--red)';
+            var totalPnlSign = totalPnl >= 0 ? '+' : '-';
+            var urSign = (s.unrealised_pnl || 0) >= 0 ? '+' : '-';
+
             evt.detail.serverResponse =
                 '<div class="stats-top">' +
                     '<div class="stat-card"><div class="stat-label">Trades</div><div class="stat-value">' + s.total_trades + '</div></div>' +
                     '<div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value pending">' + (s.dry_run_pending || 0) + '</div></div>' +
                     '<div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value">' + (s.win_rate * 100).toFixed(0) + '%</div></div>' +
-                    '<div class="stat-card"><div class="stat-label">Settled PnL</div><div class="stat-value" style="color:' + pnlColor + '">' + pnlSign + '$' + Math.abs(s.total_pnl).toFixed(2) + '</div></div>' +
+                    '<div class="stat-card"><div class="stat-label">Total PnL</div><div class="stat-value" style="color:' + totalPnlColor + '">' + totalPnlSign + '$' + Math.abs(totalPnl).toFixed(2) + '</div></div>' +
                 '</div>' +
                 '<div class="stats-more-toggle" onclick="this.nextElementSibling.classList.toggle(\'open\');this.textContent=this.nextElementSibling.classList.contains(\'open\')?\'&#9650; less stats\':\'&#9660; more stats\'">&#9660; more stats</div>' +
                 '<div class="stats-more">' +
-                    '<div class="stat-card"><div class="stat-label">Unrealised PnL</div><div class="stat-value" style="color:' + ((s.unrealised_pnl || 0) >= 0 ? 'var(--neon)' : 'var(--red)') + '">' + ((s.unrealised_pnl || 0) >= 0 ? '+' : '') + '$' + Math.abs(s.unrealised_pnl || 0).toFixed(2) + '</div></div>' +
+                    '<div class="stat-card"><div class="stat-label">Closed PnL</div><div class="stat-value" style="color:' + pnlColor + '">' + pnlSign + '$' + Math.abs(s.total_pnl).toFixed(2) + '</div></div>' +
+                    '<div class="stat-card"><div class="stat-label">Unrealised PnL</div><div class="stat-value" style="color:' + ((s.unrealised_pnl || 0) >= 0 ? 'var(--neon)' : 'var(--red)') + '">' + urSign + '$' + Math.abs(s.unrealised_pnl || 0).toFixed(2) + '</div></div>' +
                     '<div class="stat-card"><div class="stat-label">Predictions</div><div class="stat-value">' + (s.total_predictions || 0) + '</div></div>' +
                     '<div class="stat-card"><div class="stat-label">Accuracy</div><div class="stat-value" style="color:' + (accStr !== '\u2014' ? 'var(--neon)' : 'var(--text-ghost)') + '">' + accStr + '</div></div>' +
-                    '<div class="stat-card full-width"><div class="stat-label">Snapshots</div><div class="stat-value">' + s.snapshot_count + '</div></div>' +
                 '</div>';
 
             // Update accordion badges from stats
