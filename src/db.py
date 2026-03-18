@@ -754,26 +754,12 @@ class Database:
         if not self._table_exists("crypto_backtests"):
             return []
         conn = self._conn()
-        # Best config per strategy (highest expectancy from most recent run)
+        # All configs from the most recent backtest run (within 60s of the latest)
         rows = conn.execute(
-            """SELECT strategy,
-                      params,
-                      symbol,
-                      total_trades,
-                      win_rate,
-                      expectancy,
-                      total_pnl,
-                      max_drawdown,
-                      profit_factor,
-                      sharpe,
-                      ran_at
-               FROM crypto_backtests
-               WHERE (strategy, expectancy) IN (
-                   SELECT strategy, MAX(expectancy)
-                   FROM crypto_backtests
-                   GROUP BY strategy
+            """SELECT * FROM crypto_backtests
+               WHERE ran_at >= (
+                   SELECT DATETIME(MAX(ran_at), '-60 seconds') FROM crypto_backtests
                )
-               GROUP BY strategy
                ORDER BY expectancy DESC
                LIMIT ?""",
             (limit,),
