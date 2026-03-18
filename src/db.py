@@ -81,6 +81,13 @@ class Database:
                 source_trade_id INTEGER,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS consolidated_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ruleset TEXT NOT NULL,
+                feature_suggestions TEXT,
+                lesson_count INTEGER,
+                consolidated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
             CREATE TABLE IF NOT EXISTS predictions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 market_id TEXT NOT NULL,
@@ -252,6 +259,37 @@ class Database:
         else:
             rows = conn.execute("SELECT * FROM lessons").fetchall()
         return [dict(r) for r in rows]
+
+    def save_consolidated_rules(self, ruleset: str, feature_suggestions: str, lesson_count: int):
+        """Save a new consolidated ruleset. History is retained."""
+        conn = self._conn()
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO consolidated_rules (ruleset, feature_suggestions, lesson_count, consolidated_at) VALUES (?, ?, ?, ?)",
+            (ruleset, feature_suggestions, lesson_count, now),
+        )
+        conn.commit()
+
+    def get_latest_rules(self) -> dict | None:
+        """Get the most recent consolidated ruleset."""
+        conn = self._conn()
+        row = conn.execute(
+            "SELECT * FROM consolidated_rules ORDER BY consolidated_at DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+    def has_new_lessons_since_consolidation(self) -> bool:
+        """Check if any lessons were created after the last consolidation."""
+        conn = self._conn()
+        lesson_count = conn.execute("SELECT COUNT(*) as n FROM lessons").fetchone()["n"]
+        if lesson_count == 0:
+            return False
+        latest_rules = self.get_latest_rules()
+        if latest_rules is None:
+            return True  # Never consolidated, but lessons exist
+        # Count-based check: lessons only grow (INSERT OR IGNORE deduplicates),
+        # so if count > last consolidation's count, there are genuinely new lessons.
+        return lesson_count > latest_rules["lesson_count"]
 
     def save_market_snapshots_batch(self, markets) -> int:
         """Persist a batch of ScannedMarket objects to market_snapshots."""

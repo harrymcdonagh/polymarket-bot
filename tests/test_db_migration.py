@@ -208,3 +208,44 @@ def test_get_open_positions_with_prices(tmp_db):
     assert pos1["question"] == "Will it rain?"
     pos2 = next(p for p in positions if p["market_id"] == "mkt2")
     assert pos2["question"] is None
+
+
+def test_save_and_get_consolidated_rules():
+    db = Database(":memory:")
+    db.init()
+    db.save_consolidated_rules(
+        ruleset="RISK: Never bet >50\nMODEL: Check base rates",
+        feature_suggestions='[{"name": "rest_days", "priority": "high"}]',
+        lesson_count=25,
+    )
+    rules = db.get_latest_rules()
+    assert rules is not None
+    assert "RISK: Never bet >50" in rules["ruleset"]
+    assert rules["lesson_count"] == 25
+    assert rules["consolidated_at"] is not None
+
+
+def test_get_latest_rules_returns_most_recent():
+    db = Database(":memory:")
+    db.init()
+    db.save_consolidated_rules(ruleset="old rules", feature_suggestions="[]", lesson_count=5)
+    db.save_consolidated_rules(ruleset="new rules", feature_suggestions="[]", lesson_count=10)
+    rules = db.get_latest_rules()
+    assert rules["ruleset"] == "new rules"
+    assert rules["lesson_count"] == 10
+
+
+def test_get_latest_rules_returns_none_when_empty():
+    db = Database(":memory:")
+    db.init()
+    assert db.get_latest_rules() is None
+
+
+def test_has_new_lessons_since():
+    db = Database(":memory:")
+    db.init()
+    assert db.has_new_lessons_since_consolidation() is False
+    db.save_lesson(category="risk_management", lesson="test lesson")
+    assert db.has_new_lessons_since_consolidation() is True
+    db.save_consolidated_rules(ruleset="rules", feature_suggestions="[]", lesson_count=1)
+    assert db.has_new_lessons_since_consolidation() is False
