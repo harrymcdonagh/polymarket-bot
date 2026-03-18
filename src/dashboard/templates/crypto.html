@@ -410,6 +410,15 @@ function switchBacktestFilter(filter) {
     renderBacktests();
 }
 
+/* Score = Expectancy × √(Trades) × WinRate — rewards edge, volume, consistency */
+function calcScore(b) {
+    const exp = b.expectancy ?? 0;
+    const trades = b.total_trades ?? 0;
+    const wr = b.win_rate ?? 0;
+    if (trades === 0 || exp <= 0) return 0;
+    return exp * Math.sqrt(trades) * wr;
+}
+
 function renderBacktests() {
     const el = document.getElementById('crypto-backtests');
     if (!el) return;
@@ -417,27 +426,42 @@ function renderBacktests() {
         el.innerHTML = '<p class="muted">No backtest results yet.</p>';
         return;
     }
-    const items = _backtestFilter === 'all'
-        ? _backtestData
+    let items = _backtestFilter === 'all'
+        ? [..._backtestData]
         : _backtestData.filter(b => b.strategy === _backtestFilter);
     if (!items.length) {
         el.innerHTML = '<p class="muted">No results for this strategy.</p>';
         return;
     }
-    let html = '<div class="table-scroll"><table><tr><th>Strategy</th><th>Trades</th><th>Win%</th><th>Exp</th><th>P&amp;L</th></tr>';
+
+    /* Compute scores and rank */
+    items.forEach(b => { b._score = calcScore(b); });
+    const sorted = [...items].sort((a, b) => b._score - a._score);
+    sorted.forEach((b, i) => { b._rank = i + 1; });
+    /* Restore original order (by expectancy) but with ranks attached */
+    const rankMap = new Map(sorted.map(b => [b, b._rank]));
+
+    let html = '<div class="table-scroll"><table><tr><th>#</th><th>Strategy</th><th>Trades</th><th>Win%</th><th>Avg/Trade</th><th>P&amp;L</th><th>Score</th></tr>';
     items.forEach(b => {
+        const rank = rankMap.get(b) ?? '—';
         const wrStr  = b.win_rate != null ? (b.win_rate * 100).toFixed(0) + '%' : '—';
         const expStr = b.expectancy != null ? (b.expectancy >= 0 ? '+' : '') + '$' + Math.abs(b.expectancy).toFixed(2) : '—';
         const expStyle = b.expectancy != null ? (b.expectancy >= 0 ? 'color:var(--neon)' : 'color:var(--red)') : 'color:var(--text-ghost)';
         const pnl    = b.pnl ?? b.total_pnl ?? null;
         const pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '—';
         const pnlStyle = pnl != null ? (pnl >= 0 ? 'color:var(--neon);font-weight:600' : 'color:var(--red);font-weight:600') : 'color:var(--text-ghost)';
+        const score = b._score;
+        const scoreStr = score > 0 ? score.toFixed(2) : '0';
+        const scoreStyle = score > 0 ? 'color:var(--amber);font-weight:700' : 'color:var(--text-ghost)';
+        const rankStyle = rank === 1 ? 'color:var(--amber);font-weight:700' : rank <= 3 ? 'color:var(--text-secondary);font-weight:600' : 'color:var(--text-ghost)';
         html += `<tr>
+            <td style="${rankStyle}">${rank}</td>
             <td style="font-weight:500">${esc(btShortName(b))}</td>
             <td style="color:var(--text-dim)">${b.total_trades ?? '—'}</td>
             <td style="color:var(--text-secondary)">${wrStr}</td>
             <td style="${expStyle};font-weight:600">${expStr}</td>
             <td style="${pnlStyle}">${pnlStr}</td>
+            <td style="${scoreStyle}">${scoreStr}</td>
         </tr>`;
     });
     html += '</table></div>';
