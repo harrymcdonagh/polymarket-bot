@@ -343,16 +343,26 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
             nonlocal _backtest_running
             _backtest_running = True
             try:
-                # Clear old backtests first
-                service.db._conn().execute("DELETE FROM crypto_backtests")
-                service.db._conn().commit()
                 proc = await asyncio.create_subprocess_exec(
                     venv_python, "run.py", "--backtest",
                     cwd=crypto_dir,
+                    env={**os.environ, "CRYPTO_CANDLE_WINDOW": str(candles)},
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                await proc.wait()
+                stdout, stderr = await proc.communicate()
+                if proc.returncode == 0:
+                    # Only clear old results after successful run
+                    if service.db._table_exists("crypto_backtests"):
+                        # Keep only results from the last 60 seconds (the new run)
+                        service.db._conn().execute(
+                            "DELETE FROM crypto_backtests WHERE ran_at < DATETIME('now', '-60 seconds')"
+                        )
+                        service.db._conn().commit()
+                else:
+                    logger.error(f"Backtest failed: {stderr.decode()[:500]}")
+            except Exception as e:
+                logger.error(f"Backtest error: {e}")
             finally:
                 _backtest_running = False
 

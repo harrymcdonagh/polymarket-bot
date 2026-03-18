@@ -34,7 +34,7 @@ def main():
         async def run_backtest():
             feed = CryptoDataFeed()
             symbol = f"{settings.CRYPTO_SYMBOL}/USDT"
-            candles = 5000
+            candles = settings.CRYPTO_CANDLE_WINDOW
             logger.info(f"Fetching {candles} candles for {symbol} (this may take a moment)...")
             df = await feed.fetch_candles(symbol, limit=candles, min_candles=60)
             await feed.close()
