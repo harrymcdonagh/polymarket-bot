@@ -21,6 +21,19 @@
         <div class="header-status"><span class="badge badge-dry">DRY RUN</span></div>
     </header>
 
+    <!-- Controls bar -->
+    <div style="display:flex;gap:6px;padding:8px 12px;background:var(--abyss);border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center">
+        <select id="strategy-select" class="btn-sm" style="flex:1;min-width:120px;appearance:auto"></select>
+        <button class="btn-sm" onclick="applyStrategy()" style="white-space:nowrap">Apply</button>
+        <select id="candle-select" class="btn-sm" style="appearance:auto">
+            <option value="1000">1K</option>
+            <option value="2000">2K</option>
+            <option value="5000" selected>5K</option>
+            <option value="10000">10K</option>
+        </select>
+        <button class="btn-sm" id="backtest-btn" onclick="runBacktest()" style="white-space:nowrap">Backtest</button>
+    </div>
+
     <main>
         <section class="stats-grid" id="crypto-stats-grid"
                  hx-get="/api/crypto/stats" hx-trigger="load, every 10s" hx-swap="innerHTML">
@@ -545,6 +558,99 @@
             refreshChart();
         }
     });
+
+    /* ── Strategy selector + Backtest controls ── */
+    const STRATEGY_OPTIONS = [
+        { label: 'macd_hist (3/15/3)',    strategy: 'macd_hist', params: '{"macd_fast":3,"macd_slow":15,"macd_signal":3}' },
+        { label: 'macd_hist (8/21/5)',    strategy: 'macd_hist', params: '{"macd_fast":8,"macd_slow":21,"macd_signal":5}' },
+        { label: 'macd_hist (12/26/9)',   strategy: 'macd_hist', params: '{"macd_fast":12,"macd_slow":26,"macd_signal":9}' },
+        { label: 'rsi_bb (7/20/2.0)',     strategy: 'rsi_bb',    params: '{"rsi_length":7,"bb_length":20,"bb_std":2.0,"rsi_oversold":30,"rsi_overbought":70,"squeeze_threshold":0.02}' },
+        { label: 'rsi_bb (14/20/2.0)',    strategy: 'rsi_bb',    params: '{"rsi_length":14,"bb_length":20,"bb_std":2.0,"rsi_oversold":25,"rsi_overbought":75,"squeeze_threshold":0.015}' },
+        { label: 'ema_cross (5/13)',      strategy: 'ema_cross',  params: '{"ema_fast":5,"ema_slow":13}' },
+        { label: 'ema_cross (8/21)',      strategy: 'ema_cross',  params: '{"ema_fast":8,"ema_slow":21}' },
+        { label: 'ema_cross (3/10)',      strategy: 'ema_cross',  params: '{"ema_fast":3,"ema_slow":10}' },
+        { label: 'vwap_cap (2.0/0.001)',  strategy: 'vwap_cap',   params: '{"vol_spike_min":2.0,"vwap_revert_pct":0.001,"vol_sma_length":20}' },
+        { label: 'vwap_cap (3.0/0.0005)', strategy: 'vwap_cap',   params: '{"vol_spike_min":3.0,"vwap_revert_pct":0.0005,"vol_sma_length":20}' },
+    ];
+
+    async function loadCurrentConfig() {
+        try {
+            var resp = await fetch('/api/crypto/current-config');
+            var cfg = await resp.json();
+            var sel = document.getElementById('strategy-select');
+            sel.innerHTML = '';
+            STRATEGY_OPTIONS.forEach(function(opt, i) {
+                var el = document.createElement('option');
+                el.value = i;
+                el.textContent = opt.label;
+                if (opt.strategy === cfg.strategy && opt.params === cfg.params) el.selected = true;
+                sel.appendChild(el);
+            });
+            var cSel = document.getElementById('candle-select');
+            for (var j = 0; j < cSel.options.length; j++) {
+                if (parseInt(cSel.options[j].value) === cfg.candles) cSel.options[j].selected = true;
+            }
+        } catch(e) { /* silent */ }
+    }
+    loadCurrentConfig();
+
+    async function applyStrategy() {
+        var sel = document.getElementById('strategy-select');
+        var chosen = STRATEGY_OPTIONS[parseInt(sel.value)];
+        if (!chosen) return;
+        try {
+            var resp = await fetch('/api/crypto/set-strategy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(chosen),
+            });
+            var result = await resp.json();
+            toast(result.restarted ? 'Strategy updated & bot restarted' : 'Strategy saved — restart bot manually');
+        } catch(e) { toast('Failed to update strategy'); }
+    }
+
+    async function runBacktest() {
+        var btn = document.getElementById('backtest-btn');
+        var candles = parseInt(document.getElementById('candle-select').value);
+        btn.textContent = 'Running...';
+        btn.disabled = true;
+        try {
+            var resp = await fetch('/api/crypto/run-backtest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ candles: candles }),
+            });
+            var result = await resp.json();
+            if (result.status === 'already_running') {
+                toast('Backtest already running');
+            } else {
+                toast('Backtest started (' + candles + ' candles)');
+                pollBacktest();
+                return;
+            }
+        } catch(e) { toast('Failed to start backtest'); }
+        btn.disabled = false;
+        btn.textContent = 'Backtest';
+    }
+
+    function pollBacktest() {
+        var btn = document.getElementById('backtest-btn');
+        var poll = setInterval(async function() {
+            try {
+                var resp = await fetch('/api/crypto/backtest-status');
+                var s = await resp.json();
+                if (!s.running) {
+                    clearInterval(poll);
+                    btn.textContent = 'Backtest';
+                    btn.disabled = false;
+                    toast('Backtest complete');
+                    loadBacktests();
+                } else {
+                    btn.textContent = 'Running...';
+                }
+            } catch(e) { clearInterval(poll); btn.textContent = 'Backtest'; btn.disabled = false; }
+        }, 3000);
+    }
     </script>
 </body>
 </html>
