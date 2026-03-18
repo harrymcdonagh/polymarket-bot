@@ -309,7 +309,7 @@ main {
 
 .grid {
     display: grid;
-    grid-template-columns: 60fr 40fr;
+    grid-template-columns: minmax(0, 60fr) minmax(0, 40fr);
     grid-template-rows: 1fr 1fr;
     gap: 0.35rem;
     flex: 1;
@@ -328,7 +328,8 @@ main {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    min-height: 0;
+    min-height: 100px;
+    min-width: 0;
     transition: border-color 0.25s var(--ease);
 }
 
