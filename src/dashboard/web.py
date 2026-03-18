@@ -1,7 +1,10 @@
 import asyncio
 import base64
+import logging
 import re
 import secrets
+
+logger = logging.getLogger(__name__)
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request
