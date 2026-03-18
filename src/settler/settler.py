@@ -25,45 +25,65 @@ class Settler:
         self._last_positions_update: str | None = None
 
     async def _fetch_markets_for_ids(self, condition_ids: set[str]) -> dict[str, dict]:
-        """Fetch market data for specific conditionIds by paginating active+closed markets.
+        """Fetch market data using clob_token_ids for targeted lookups.
 
-        The Gamma API ignores the conditionId query param, so we must paginate
-        through all markets and match locally by conditionId.
+        The Gamma API ignores the conditionId query param, but supports
+        clob_token_ids. We look up token IDs from market_snapshots, then
+        query each market directly.
         Returns a dict mapping conditionId -> market data.
         """
         found: dict[str, dict] = {}
+        # Get token ID mapping from DB
+        token_map = self.db.get_token_ids_for_conditions(condition_ids)
+
+        # Bootstrap: if token IDs are missing, scan active markets to populate them
+        missing = condition_ids - set(token_map.keys())
+        if missing:
+            logger.info(f"Missing token IDs for {len(missing)} markets, scanning active markets...")
+            backfilled = await self._backfill_token_ids(missing)
+            token_map.update(backfilled)
+
+        if not token_map:
+            logger.warning("No token IDs found — cannot fetch market data")
+            return found
+
+        logger.info(f"Found token IDs for {len(token_map)}/{len(condition_ids)} markets")
+
         try:
             async with httpx.AsyncClient(timeout=30) as client:
-                # First pass: active open markets
-                offset = 0
-                while len(found) < len(condition_ids):
-                    resp = await client.get(
-                        f"{self.gamma_url}/markets",
-                        params={"active": "true", "closed": "false",
-                                "limit": 100, "offset": offset},
-                    )
-                    if resp.status_code != 200:
-                        break
-                    raw = resp.json()
-                    markets = (await raw) if hasattr(raw, "__await__") else raw
-                    if not markets:
-                        break
-                    for m in markets:
-                        cid = m.get("conditionId") or m.get("condition_id", "")
-                        if cid in condition_ids:
-                            found[cid] = m
-                    if len(markets) < 100:
-                        break
-                    offset += 100
-
-                # Second pass: closed markets (for resolved/settling markets)
-                if len(found) < len(condition_ids):
-                    missing = condition_ids - set(found.keys())
-                    offset = 0
-                    while missing:
+                for cid, token_id in token_map.items():
+                    try:
                         resp = await client.get(
                             f"{self.gamma_url}/markets",
-                            params={"closed": "true", "limit": 100, "offset": offset},
+                            params={"clob_token_ids": token_id, "limit": 1},
+                        )
+                        if resp.status_code != 200:
+                            continue
+                        raw = resp.json()
+                        results = (await raw) if hasattr(raw, "__await__") else raw
+                        if isinstance(results, list) and results:
+                            found[cid] = results[0]
+                        elif isinstance(results, dict) and results:
+                            found[cid] = results
+                    except Exception:
+                        continue
+        except Exception as e:
+            logger.warning(f"Market fetch error: {e}")
+        return found
+
+    async def _backfill_token_ids(self, condition_ids: set[str]) -> dict[str, str]:
+        """Scan active+closed markets to find and save token IDs for markets missing them."""
+        token_map: dict[str, str] = {}
+        remaining = set(condition_ids)
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                for closed_val in ("false", "true"):
+                    offset = 0
+                    while remaining:
+                        resp = await client.get(
+                            f"{self.gamma_url}/markets",
+                            params={"active": "true", "closed": closed_val,
+                                    "limit": 100, "offset": offset},
                         )
                         if resp.status_code != 200:
                             break
@@ -73,15 +93,21 @@ class Settler:
                             break
                         for m in markets:
                             cid = m.get("conditionId") or m.get("condition_id", "")
-                            if cid in missing:
-                                found[cid] = m
-                                missing.discard(cid)
-                        if not missing or len(markets) < 100:
+                            if cid in remaining:
+                                token_ids = json.loads(m.get("clobTokenIds", "[]"))
+                                if token_ids:
+                                    token_map[cid] = token_ids[0]
+                                    remaining.discard(cid)
+                                    # Save to DB for future lookups
+                                    self.db.update_snapshot_token_id(cid, token_ids[0])
+                        if not remaining or len(markets) < 100:
                             break
                         offset += 100
         except Exception as e:
-            logger.warning(f"Market fetch error: {e}")
-        return found
+            logger.warning(f"Token ID backfill error: {e}")
+        if token_map:
+            logger.info(f"Backfilled token IDs for {len(token_map)} markets")
+        return token_map
 
     def _parse_resolution(self, data: dict) -> str | None:
         """Check if a market has resolved. Returns 'YES'/'NO' or None."""

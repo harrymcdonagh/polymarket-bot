@@ -155,6 +155,10 @@ class Database:
         pred_cols = {row[1] for row in conn.execute("PRAGMA table_info(predictions)").fetchall()}
         if "features_json" not in pred_cols:
             conn.execute("ALTER TABLE predictions ADD COLUMN features_json TEXT")
+        # Migrate market_snapshots table
+        snap_cols = {row[1] for row in conn.execute("PRAGMA table_info(market_snapshots)").fetchall()}
+        if "token_yes_id" not in snap_cols:
+            conn.execute("ALTER TABLE market_snapshots ADD COLUMN token_yes_id TEXT")
         conn.commit()
 
     def save_trade(self, market_id: str, side: str, amount: float, price: float,
@@ -255,18 +259,41 @@ class Database:
                 m.days_to_resolution,
                 ",".join(str(f) for f in m.flags) if m.flags else "",
                 m.scanned_at.isoformat() if m.scanned_at else now,
+                getattr(m, "token_yes_id", None),
             )
             for m in markets
         ]
         conn.executemany(
             """INSERT INTO market_snapshots
                (condition_id, question, yes_price, no_price, spread, liquidity,
-                volume_24h, days_to_resolution, flags, snapshot_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                volume_24h, days_to_resolution, flags, snapshot_at, token_yes_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         conn.commit()
         return len(rows)
+
+    def update_snapshot_token_id(self, condition_id: str, token_yes_id: str):
+        """Update token_yes_id for all snapshots of a given conditionId."""
+        conn = self._conn()
+        conn.execute(
+            "UPDATE market_snapshots SET token_yes_id = ? WHERE condition_id = ? AND token_yes_id IS NULL",
+            (token_yes_id, condition_id),
+        )
+        conn.commit()
+
+    def get_token_ids_for_conditions(self, condition_ids: set[str]) -> dict[str, str]:
+        """Get mapping of conditionId -> token_yes_id from snapshots."""
+        conn = self._conn()
+        placeholders = ",".join("?" for _ in condition_ids)
+        rows = conn.execute(
+            f"""SELECT DISTINCT condition_id, token_yes_id
+                FROM market_snapshots
+                WHERE condition_id IN ({placeholders})
+                  AND token_yes_id IS NOT NULL""",
+            list(condition_ids),
+        ).fetchall()
+        return {r["condition_id"]: r["token_yes_id"] for r in rows}
 
     def get_pnl_history(self) -> list[dict]:
         """Daily PnL series with cumulative totals for charting."""
