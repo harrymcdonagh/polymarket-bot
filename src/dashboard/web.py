@@ -297,7 +297,13 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
 
     @app.get("/api/crypto/backtests")
     async def api_crypto_backtests():
-        return await asyncio.to_thread(service.db.get_top_crypto_backtests, 5)
+        import math
+        results = await asyncio.to_thread(service.db.get_top_crypto_backtests, 5)
+        for r in results:
+            for k, v in r.items():
+                if isinstance(v, float) and (math.isinf(v) or math.isnan(v)):
+                    r[k] = None
+        return results
 
     app.state.service = service
     return app
