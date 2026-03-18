@@ -441,7 +441,7 @@ function renderBacktests() {
     /* Restore original order (by expectancy) but with ranks attached */
     const rankMap = new Map(sorted.map(b => [b, b._rank]));
 
-    let html = '<div class="table-scroll"><table><tr><th>#</th><th>Strategy</th><th>Trades</th><th>Win%</th><th>Avg/Trade</th><th>P&amp;L</th><th>Score</th></tr>';
+    let html = '<div class="table-scroll"><table><tr><th style="width:1.5rem;text-align:center">#</th><th>Strategy</th><th>Trades</th><th>Win%</th><th>Avg/Trade</th><th>P&amp;L</th><th>Score</th></tr>';
     items.forEach(b => {
         const rank = rankMap.get(b) ?? '—';
         const wrStr  = b.win_rate != null ? (b.win_rate * 100).toFixed(0) + '%' : '—';
@@ -455,7 +455,7 @@ function renderBacktests() {
         const scoreStyle = score > 0 ? 'color:var(--amber);font-weight:700' : 'color:var(--text-ghost)';
         const rankStyle = rank === 1 ? 'color:var(--amber);font-weight:700' : rank <= 3 ? 'color:var(--text-secondary);font-weight:600' : 'color:var(--text-ghost)';
         html += `<tr>
-            <td style="${rankStyle}">${rank}</td>
+            <td style="${rankStyle};text-align:center">${rank}</td>
             <td style="font-weight:500">${esc(btShortName(b))}</td>
             <td style="color:var(--text-dim)">${b.total_trades ?? '—'}</td>
             <td style="color:var(--text-secondary)">${wrStr}</td>
