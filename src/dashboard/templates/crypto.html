@@ -4,465 +4,237 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crypto 5-Min — Polymarket Bot</title>
+    <link rel="stylesheet" href="/static/style.css">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-        body {
-            background: #0a0a1a;
-            color: #c9d1d9;
-            font-family: 'Segoe UI', system-ui, sans-serif;
-            font-size: 0.875rem;
-            min-height: 100vh;
-        }
-
-        a { color: inherit; }
-
-        /* ── Nav ── */
-        nav.top-nav {
-            display: flex;
-            gap: 1.5rem;
-            padding: 0.75rem 1.5rem;
-            background: #1a1a2e;
-            border-bottom: 1px solid #333;
-            font-size: 0.9rem;
-        }
-        nav.top-nav a {
-            text-decoration: none;
-            transition: color 0.15s;
-        }
-        nav.top-nav a:hover { color: #fff; }
-
-        /* ── Stats bar ── */
-        .stats-bar {
-            display: flex;
-            gap: 1rem;
-            padding: 1rem 1.5rem;
-            background: #0d0d20;
-            border-bottom: 1px solid #1e1e3a;
-            flex-wrap: wrap;
-        }
-
-        .stat-card {
-            background: #12122a;
-            border: 1px solid #1e1e3a;
-            border-radius: 6px;
-            padding: 0.6rem 1rem;
-            min-width: 120px;
-            flex: 1;
-        }
-        .stat-card .stat-label {
-            font-size: 0.7rem;
-            color: #566175;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 0.25rem;
-        }
-        .stat-card .stat-value {
-            font-size: 1.1rem;
-            font-weight: 700;
-            color: #c9d1d9;
-            font-variant-numeric: tabular-nums;
-        }
-
-        /* ── Main layout ── */
-        .main-layout {
-            display: flex;
-            gap: 1rem;
-            padding: 1rem 1.5rem;
-            align-items: flex-start;
-        }
-
-        .col-left  { flex: 3; min-width: 0; display: flex; flex-direction: column; gap: 1rem; }
-        .col-right { flex: 2; min-width: 0; display: flex; flex-direction: column; gap: 1rem; }
-
-        /* ── Cards ── */
-        .card {
-            background: #10102a;
-            border: 1px solid #1e1e3a;
-            border-radius: 8px;
-            padding: 1rem;
-        }
-        .card h2 {
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: #566175;
-            margin-bottom: 0.75rem;
-            font-weight: 600;
-        }
-
-        /* ── Chart ── */
-        .chart-wrap {
-            position: relative;
-            height: 220px;
-        }
-
-        /* ── Tables ── */
-        .table-scroll { overflow-x: auto; }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.78rem;
-        }
-        th {
-            color: #566175;
-            text-align: left;
-            padding: 0.4rem 0.5rem;
-            border-bottom: 1px solid #1e1e3a;
-            font-weight: 500;
-            white-space: nowrap;
-        }
-        td {
-            padding: 0.35rem 0.5rem;
-            border-bottom: 1px solid #12122a;
-            vertical-align: middle;
-        }
-        tr:last-child td { border-bottom: none; }
-        tr:hover td { background: #14143a; }
-
-        /* ── Colour helpers ── */
-        .pos  { color: #22c55e; }
-        .neg  { color: #ef4444; }
-        .amr  { color: #f0c040; }
-        .muted { color: #566175; font-size: 0.78rem; padding: 0.5rem 0; }
-
-        /* ── Status pill ── */
-        .pill {
-            display: inline-block;
-            padding: 0.15rem 0.5rem;
-            border-radius: 99px;
-            font-size: 0.68rem;
-            font-weight: 600;
-        }
-        .pill-green  { background: rgba(34,197,94,0.15);  color: #22c55e; }
-        .pill-yellow { background: rgba(240,192,64,0.15); color: #f0c040; }
-        .pill-red    { background: rgba(239,68,68,0.15);  color: #ef4444; }
-        .pill-gray   { background: rgba(86,97,117,0.2);   color: #566175; }
-
-        /* ── Strategy comparison ── */
-        .strategy-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0.4rem 0;
-            border-bottom: 1px solid #12122a;
-            font-size: 0.8rem;
-        }
-        .strategy-row:last-child { border-bottom: none; }
-        .strategy-name { color: #c9d1d9; font-weight: 500; }
-        .strategy-meta { color: #566175; font-size: 0.72rem; }
-        .strategy-pnl  { font-weight: 600; font-variant-numeric: tabular-nums; }
-
-        /* ── Incubation ── */
-        .incubation-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0.35rem 0;
-            border-bottom: 1px solid #12122a;
-            font-size: 0.78rem;
-        }
-        .incubation-row:last-child { border-bottom: none; }
-
-        @media (max-width: 768px) {
-            .main-layout { flex-direction: column; }
-            .stats-bar { gap: 0.5rem; }
-            .stat-card { min-width: 80px; }
-        }
-    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
 </head>
 <body>
-
-<nav class="top-nav">
-  <a href="/" style="color:#e0e0e0;font-weight:600;">Event Markets</a>
-  <a href="/crypto" style="color:#f0c040;font-weight:700;">Crypto 5-Min</a>
+<nav style="display:flex;gap:1.5rem;padding:0.75rem 1.5rem;background:#1a1a2e;border-bottom:1px solid #333;font-size:0.9rem;">
+  <a href="/" style="color:#8B95A5;text-decoration:none;font-weight:600;">Event Markets</a>
+  <a href="/crypto" style="color:#f0c040;text-decoration:none;font-weight:700;">Crypto 5-Min</a>
 </nav>
 
-<!-- Stats bar -->
-<div class="stats-bar" id="crypto-stats"
-     hx-get="/api/crypto/stats"
-     hx-trigger="load, every 10s"
-     hx-swap="innerHTML">
-    <div class="stat-card"><div class="stat-label">Today P&amp;L</div><div class="stat-value">—</div></div>
-    <div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value">—</div></div>
-    <div class="stat-card"><div class="stat-label">Total Trades</div><div class="stat-value">—</div></div>
-    <div class="stat-card"><div class="stat-label">Bankroll</div><div class="stat-value">—</div></div>
-    <div class="stat-card"><div class="stat-label">Total P&amp;L</div><div class="stat-value">—</div></div>
-</div>
+<header>
+    <h1>Crypto 5-Min</h1>
+    <div id="status-badge"><span class="badge badge-dry">DRY RUN</span></div>
+</header>
 
-<div class="main-layout">
+<main>
+    <section class="stats-row" id="crypto-stats"
+             hx-get="/api/crypto/stats" hx-trigger="load, every 10s" hx-swap="innerHTML">
+    </section>
 
-    <!-- Left: 60% -->
-    <div class="col-left">
+    <div class="grid">
+        <!-- Left top: Trades -->
+        <section class="card">
+            <h2>Trades <span class="trade-tabs">
+                <button class="trade-tab active" onclick="switchTradeTab('open')">Open</button>
+                <button class="trade-tab" onclick="switchTradeTab('settled')">Closed</button>
+            </span></h2>
+            <div id="trades-table"></div>
+        </section>
 
-        <!-- Cumulative PnL chart -->
-        <div class="card">
+        <!-- Right top: Chart -->
+        <section class="card chart-card">
             <h2>Cumulative P&amp;L</h2>
-            <div class="chart-wrap">
-                <canvas id="crypto-pnl-chart"></canvas>
-            </div>
-        </div>
+            <canvas id="pnl-chart"></canvas>
+        </section>
 
-        <!-- Recent trades -->
-        <div class="card">
-            <h2>Recent Trades</h2>
-            <div id="crypto-trades"
-                 hx-get="/api/crypto/trades"
-                 hx-trigger="load, every 10s"
-                 hx-swap="innerHTML">
-                <p class="muted">Loading…</p>
-            </div>
-        </div>
-
-    </div>
-
-    <!-- Right: 40% -->
-    <div class="col-right">
-
-        <!-- Strategy comparison -->
-        <div class="card">
+        <!-- Left bottom: Strategy Comparison -->
+        <section class="card">
             <h2>Strategy Comparison</h2>
-            <div id="crypto-strategies"
-                 hx-get="/api/crypto/strategies"
-                 hx-trigger="load, every 30s"
-                 hx-swap="innerHTML">
-                <p class="muted">Loading…</p>
-            </div>
-        </div>
+            <div id="crypto-strategies"></div>
+        </section>
 
-        <!-- Incubation status -->
-        <div class="card">
-            <h2>Incubation Status</h2>
-            <div id="crypto-incubation"
-                 hx-get="/api/crypto/incubation"
-                 hx-trigger="load, every 30s"
-                 hx-swap="innerHTML">
-                <p class="muted">No strategies in incubation.</p>
-            </div>
+        <!-- Right bottom: Incubation + Backtests stacked -->
+        <div class="split-col">
+            <section class="card">
+                <h2>Incubation</h2>
+                <div id="crypto-incubation"></div>
+            </section>
+            <section class="card">
+                <h2>Top Backtests</h2>
+                <div id="crypto-backtests"></div>
+            </section>
         </div>
-
-        <!-- Top backtests -->
-        <div class="card">
-            <h2>Top Backtests</h2>
-            <div id="crypto-backtests"
-                 hx-get="/api/crypto/backtests"
-                 hx-trigger="load, every 30s"
-                 hx-swap="innerHTML">
-                <p class="muted">No backtest results yet.</p>
-            </div>
-        </div>
-
     </div>
-</div>
+</main>
 
 <script>
 /* ── Helpers ── */
 function esc(s) {
     const d = document.createElement('div');
-    d.textContent = String(s);
+    d.textContent = String(s ?? '');
     return d.innerHTML;
 }
-function fmtPnl(v) {
-    if (v == null) return '<span class="muted">—</span>';
-    const sign = v >= 0 ? '+' : '';
-    const cls  = v >= 0 ? 'pos' : 'neg';
-    return `<span class="${cls}">${sign}$${Math.abs(v).toFixed(2)}</span>`;
-}
-function fmtPct(v) {
-    if (v == null) return '<span class="muted">—</span>';
-    const cls = v >= 0 ? 'pos' : 'neg';
-    return `<span class="${cls}">${(v * 100).toFixed(1)}%</span>`;
-}
 
-/* ── Stats bar rendering ── */
+/* ── Stats bar (htmx beforeSwap) ── */
 htmx.on('htmx:beforeSwap', function(evt) {
-    if (evt.detail.target.id === 'crypto-stats') {
-        let s;
-        try { s = JSON.parse(evt.detail.xhr.responseText); } catch { return; }
-        const todayPnl  = s.today_pnl  ?? 0;
-        const totalPnl  = s.total_pnl  ?? 0;
-        const winRate   = s.win_rate    ?? 0;
-        const trades    = s.total_trades ?? 0;
-        const bankroll  = s.bankroll    ?? 0;
+    if (!evt.detail.target.classList.contains('stats-row')) return;
+    let s;
+    try { s = JSON.parse(evt.detail.xhr.responseText); } catch { return; }
 
-        const todayCls  = todayPnl  >= 0 ? 'pos' : 'neg';
-        const totalCls  = totalPnl  >= 0 ? 'pos' : 'neg';
-        const todaySign = todayPnl  >= 0 ? '+' : '';
-        const totalSign = totalPnl  >= 0 ? '+' : '';
+    const totalTrades = s.total_trades ?? 0;
+    const open        = (s.total_trades ?? 0) - (s.settled ?? 0);
+    const wins        = s.wins ?? 0;
+    const settled     = s.settled ?? 0;
+    const winRate     = s.win_rate ?? 0;
+    const todayPnl    = s.today_pnl ?? 0;
+    const totalPnl    = s.total_pnl ?? 0;
+    const bankroll    = s.bankroll ?? 0;
 
-        evt.detail.serverResponse = `
-            <div class="stat-card">
-                <div class="stat-label">Today P&amp;L</div>
-                <div class="stat-value ${todayCls}">${todaySign}$${Math.abs(todayPnl).toFixed(2)}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Win Rate</div>
-                <div class="stat-value">${(winRate * 100).toFixed(1)}%</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Total Trades</div>
-                <div class="stat-value">${trades}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Bankroll</div>
-                <div class="stat-value amr">$${bankroll.toFixed(2)}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Total P&amp;L</div>
-                <div class="stat-value ${totalCls}">${totalSign}$${Math.abs(totalPnl).toFixed(2)}</div>
-            </div>`;
-    }
+    const todayColor  = todayPnl >= 0 ? 'var(--neon)' : 'var(--red)';
+    const totalColor  = totalPnl >= 0 ? 'var(--neon)' : 'var(--red)';
+    const todaySign   = todayPnl >= 0 ? '+' : '';
+    const totalSign   = totalPnl >= 0 ? '+' : '';
 
-    /* ── Trades table ── */
-    if (evt.detail.target.id === 'crypto-trades') {
-        let data;
-        try { data = JSON.parse(evt.detail.xhr.responseText); } catch { return; }
-        const items = data.items || data;
-        if (!items || items.length === 0) {
-            evt.detail.serverResponse = '<p class="muted">No trades yet.</p>';
-            return;
-        }
-        let html = `<div class="table-scroll"><table>
-            <tr>
-                <th>Time</th><th>Strategy</th><th>Side</th><th>Amount</th>
-                <th>Entry</th><th>P&amp;L</th><th>Status</th>
-            </tr>`;
-        items.forEach(t => {
-            const side    = t.side || '—';
-            const sideCls = side === 'Up' ? 'pos' : side === 'Down' ? 'neg' : '';
-            const pnl     = t.pnl;
-            const pnlHtml = fmtPnl(pnl);
-            const st = t.status || '';
-            const statusPill = st.includes('won')  ? '<span class="pill pill-green">WON</span>'
-                             : st.includes('lost')  ? '<span class="pill pill-red">LOST</span>'
-                             : st.includes('open')   ? '<span class="pill pill-yellow">OPEN</span>'
-                             : `<span class="pill pill-gray">${esc(st)}</span>`;
-            const entry = t.entry_price != null ? t.entry_price.toFixed(2) : '—';
-            const ts    = t.placed_at ? new Date(t.placed_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—';
-            html += `<tr>
-                <td style="color:#566175">${ts}</td>
-                <td style="font-weight:500">${esc(t.strategy || '—')}</td>
-                <td class="${sideCls}" style="font-weight:600">${esc(side)}</td>
-                <td>$${(t.amount || 0).toFixed(2)}</td>
-                <td>${entry}</td>
-                <td>${pnlHtml}</td>
-                <td>${statusPill}</td>
-            </tr>`;
-        });
-        html += '</table></div>';
-        evt.detail.serverResponse = html;
-    }
-
-    /* ── Strategies ── */
-    if (evt.detail.target.id === 'crypto-strategies') {
-        let items;
-        try { items = JSON.parse(evt.detail.xhr.responseText); } catch { return; }
-        if (!items || items.length === 0) {
-            evt.detail.serverResponse = '<p class="muted">No active strategies.</p>';
-            return;
-        }
-        let html = '';
-        items.forEach(s => {
-            const pnlHtml = fmtPnl(s.total_pnl ?? null);
-            const wrStr   = s.win_rate != null ? (s.win_rate * 100).toFixed(0) + '%' : '—';
-            html += `<div class="strategy-row">
-                <div>
-                    <div class="strategy-name">${esc(s.strategy || '—')}</div>
-                    <div class="strategy-meta">${wrStr} win rate · ${s.total_trades ?? 0} trades</div>
-                </div>
-                <div class="strategy-pnl">${pnlHtml}</div>
-            </div>`;
-        });
-        evt.detail.serverResponse = html;
-    }
-
-    /* ── Incubation ── */
-    if (evt.detail.target.id === 'crypto-incubation') {
-        let items;
-        try { items = JSON.parse(evt.detail.xhr.responseText); } catch { return; }
-        if (!items || items.length === 0) {
-            evt.detail.serverResponse = '<p class="muted">No strategies in incubation.</p>';
-            return;
-        }
-        let html = '';
-        items.forEach(s => {
-            const pnlHtml = fmtPnl(s.total_pnl ?? null);
-            const statusPill = s.status === 'incubating' ? '<span class="pill pill-yellow">INCUBATING</span>'
-                             : s.status === 'scaled'     ? '<span class="pill pill-green">SCALED</span>'
-                             : s.status === 'retired'    ? '<span class="pill pill-red">RETIRED</span>'
-                             : `<span class="pill pill-gray">${esc(s.status || '—')}</span>`;
-            html += `<div class="incubation-row">
-                <div>
-                    <div style="font-weight:500">${esc(s.strategy || '—')}</div>
-                    <div style="color:#566175;font-size:0.7rem">$${(s.position_size || 0).toFixed(2)} · ${s.total_trades ?? 0} trades</div>
-                </div>
-                <div style="display:flex;align-items:center;gap:0.75rem">
-                    ${pnlHtml}
-                    ${statusPill}
-                </div>
-            </div>`;
-        });
-        evt.detail.serverResponse = html;
-    }
-
-    /* ── Backtests ── */
-    if (evt.detail.target.id === 'crypto-backtests') {
-        let items;
-        try { items = JSON.parse(evt.detail.xhr.responseText); } catch { return; }
-        if (!items || items.length === 0) {
-            evt.detail.serverResponse = '<p class="muted">No backtest results yet.</p>';
-            return;
-        }
-        let html = `<div class="table-scroll"><table>
-            <tr><th>Strategy</th><th>Symbol</th><th>Trades</th><th>Win%</th><th>P&amp;L</th></tr>`;
-        items.slice(0, 10).forEach(b => {
-            const pnlHtml = fmtPnl(b.pnl ?? b.total_pnl ?? null);
-            const wrStr   = b.win_rate != null ? (b.win_rate * 100).toFixed(0) + '%' : '—';
-            html += `<tr>
-                <td style="font-weight:500">${esc(b.strategy || '—')}</td>
-                <td style="color:#566175">${esc(b.symbol || '—')}</td>
-                <td>${b.total_trades ?? '—'}</td>
-                <td>${wrStr}</td>
-                <td>${pnlHtml}</td>
-            </tr>`;
-        });
-        html += '</table></div>';
-        evt.detail.serverResponse = html;
-    }
+    evt.detail.serverResponse = `
+        <div class="stat-card">
+            <div class="stat-value">${totalTrades}</div>
+            <div class="stat-label">Total Trades</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${open}</div>
+            <div class="stat-label">Open</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${(winRate * 100).toFixed(0)}%</div>
+            <div class="stat-label">Win Rate (${wins}/${settled})</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color:${todayColor}">${todaySign}$${Math.abs(todayPnl).toFixed(2)}</div>
+            <div class="stat-label">Today P&amp;L</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color:${totalColor}">${totalSign}$${Math.abs(totalPnl).toFixed(2)}</div>
+            <div class="stat-label">Total P&amp;L</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color:var(--amber)">$${bankroll.toFixed(2)}</div>
+            <div class="stat-label">Bankroll</div>
+        </div>`;
 });
+
+/* ── Trade tabs ── */
+let _tradeTab = 'open';
+let _tradesData = [];
+
+function switchTradeTab(tab) {
+    _tradeTab = tab;
+    document.querySelectorAll('.trade-tab').forEach(b =>
+        b.classList.toggle('active', b.textContent.toLowerCase() === tab)
+    );
+    renderTrades();
+}
+
+const isOpen     = s => s === 'dry_run_open' || s === 'open';
+const isSettled  = s => s === 'dry_run_won' || s === 'dry_run_lost' || s === 'won' || s === 'lost';
+
+function renderTrades() {
+    const el = document.getElementById('trades-table');
+    if (!el) return;
+    if (_tradesData.length === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
+
+    const items = _tradesData.filter(t =>
+        _tradeTab === 'open' ? isOpen(t.status) : isSettled(t.status)
+    );
+    if (items.length === 0) {
+        el.innerHTML = `<p class="muted">No ${_tradeTab} trades.</p>`;
+        return;
+    }
+
+    /* Column headers differ between tabs */
+    const headerHtml = _tradeTab === 'open'
+        ? '<th>Market</th><th>Side</th><th>Amount</th><th>Entry</th><th>BTC Start</th><th>P&amp;L</th>'
+        : '<th>Market</th><th>Side</th><th>Amount</th><th>Entry</th><th>BTC Start</th><th>Outcome</th><th>P&amp;L</th>';
+
+    let html = `<div class="table-scroll"><table class="trades-tbl"><tr>${headerHtml}</tr>`;
+
+    items.forEach(t => {
+        const nameText  = esc(t.strategy || t.symbol || '—');
+        const sideStyle = t.side === 'Up' ? 'color:var(--neon)' : 'color:var(--red)';
+        const amtStr    = '$' + (t.amount || 0).toFixed(2);
+        const entryStr  = t.entry_price != null ? t.entry_price.toFixed(3) : '—';
+        const btcStr    = t.btc_price_at_entry != null
+            ? '$' + t.btc_price_at_entry.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})
+            : '—';
+
+        /* P&L */
+        const pnl      = t.pnl;
+        const pnlStr   = pnl != null
+            ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2)
+            : '—';
+        const pnlStyle = pnl != null
+            ? (pnl >= 0 ? 'color:var(--neon);font-weight:600' : 'color:var(--red);font-weight:600')
+            : 'color:var(--text-ghost)';
+
+        if (_tradeTab === 'open') {
+            html += `<tr>
+                <td class="td-market">${nameText}</td>
+                <td style="${sideStyle};font-weight:600">${esc(t.side || '—')}</td>
+                <td>${amtStr}</td>
+                <td>${entryStr}</td>
+                <td style="color:var(--text-dim)">${btcStr}</td>
+                <td style="${pnlStyle}">${pnlStr}</td>
+            </tr>`;
+        } else {
+            /* Outcome: did the trade win? Up side wins if won, Down side wins if won */
+            const won    = t.status === 'won' || t.status === 'dry_run_won';
+            const outcomeStr   = won
+                ? (t.side === 'Up' ? 'Up ✓' : 'Down ✓')
+                : (t.side === 'Up' ? 'Down ✗' : 'Up ✗');
+            const outcomeStyle = won ? 'color:var(--neon);font-weight:600' : 'color:var(--red);font-weight:600';
+
+            html += `<tr>
+                <td class="td-market">${nameText}</td>
+                <td style="${sideStyle};font-weight:600">${esc(t.side || '—')}</td>
+                <td>${amtStr}</td>
+                <td>${entryStr}</td>
+                <td style="color:var(--text-dim)">${btcStr}</td>
+                <td style="${outcomeStyle}">${outcomeStr}</td>
+                <td style="${pnlStyle}">${pnlStr}</td>
+            </tr>`;
+        }
+    });
+
+    html += '</table></div>';
+    el.innerHTML = html;
+}
+
+async function loadTrades() {
+    try {
+        const resp = await fetch('/api/crypto/trades?page=1&per_page=200');
+        const data = await resp.json();
+        _tradesData = data.items || [];
+        renderTrades();
+    } catch { /* silent */ }
+}
+loadTrades();
+setInterval(loadTrades, 10000);
 
 /* ── PnL Chart ── */
 let cryptoChart = null;
 
-async function refreshCryptoChart() {
+async function refreshChart() {
     let data;
     try {
         const resp = await fetch('/api/crypto/pnl-history');
         data = await resp.json();
-    } catch {
-        return;
-    }
+    } catch { return; }
     if (!Array.isArray(data) || data.length === 0) return;
 
-    const labels  = data.map(d => d.date || d.time || d.label || '');
-    const values  = data.map(d => d.cumulative_pnl ?? d.pnl ?? 0);
-    const canvas  = document.getElementById('crypto-pnl-chart');
+    const labels = data.map(d => d.date || d.time || d.label || '');
+    const values = data.map(d => d.cumulative_pnl ?? d.pnl ?? 0);
+    const canvas = document.getElementById('pnl-chart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
-    if (cryptoChart) {
-        cryptoChart.data.labels = labels;
-        cryptoChart.data.datasets[0].data = values;
-        cryptoChart.update('none');
-        return;
-    }
+    if (cryptoChart) { cryptoChart.destroy(); cryptoChart = null; }
 
-    const grad = ctx.createLinearGradient(0, 0, 0, 200);
-    grad.addColorStop(0,   'rgba(240, 192, 64, 0.18)');
-    grad.addColorStop(0.6, 'rgba(240, 192, 64, 0.04)');
-    grad.addColorStop(1,   'rgba(240, 192, 64, 0)');
+    const grad = ctx.createLinearGradient(0, 0, 0, 180);
+    grad.addColorStop(0,   'rgba(245, 158, 11, 0.12)');
+    grad.addColorStop(0.6, 'rgba(245, 158, 11, 0.02)');
+    grad.addColorStop(1,   'rgba(245, 158, 11, 0)');
 
     cryptoChart = new Chart(ctx, {
         type: 'line',
@@ -471,15 +243,15 @@ async function refreshCryptoChart() {
             datasets: [{
                 label: 'Cumulative P&L',
                 data: values,
-                borderColor: '#f0c040',
+                borderColor: '#F59E0B',
                 borderWidth: 1.5,
                 backgroundColor: grad,
                 fill: true,
-                tension: 0.3,
+                tension: 0.35,
                 pointRadius: 0,
                 pointHoverRadius: 4,
-                pointHoverBackgroundColor: '#f0c040',
-                pointHoverBorderColor: '#0a0a1a',
+                pointHoverBackgroundColor: '#F59E0B',
+                pointHoverBorderColor: '#0B0E14',
                 pointHoverBorderWidth: 2,
             }]
         },
@@ -490,43 +262,140 @@ async function refreshCryptoChart() {
             plugins: {
                 legend: {
                     display: true, position: 'top', align: 'end',
-                    labels: { boxWidth: 12, boxHeight: 2, padding: 8,
-                              font: { size: 9 }, color: '#566175' }
+                    labels: { boxWidth: 12, boxHeight: 2, padding: 8, font: { family: 'JetBrains Mono', size: 9 }, color: '#566175' }
                 },
                 tooltip: {
-                    backgroundColor: '#131820',
-                    borderColor: '#1e1e3a',
-                    borderWidth: 1,
-                    titleFont: { size: 10, weight: '600' },
-                    bodyFont: { size: 11, weight: '500' },
-                    titleColor: '#566175',
-                    bodyColor: '#e6edf3',
-                    padding: { x: 8, y: 6 },
-                    cornerRadius: 4,
-                    callbacks: {
-                        label: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toFixed(2)}`
-                    }
+                    backgroundColor: '#131820', borderColor: '#1C2333', borderWidth: 1,
+                    titleFont: { family: 'Bricolage Grotesque', size: 10, weight: '600' },
+                    bodyFont: { family: 'JetBrains Mono', size: 11, weight: '500' },
+                    titleColor: '#566175', bodyColor: '#E6EDF3',
+                    padding: { x: 8, y: 6 }, cornerRadius: 4, displayColors: true,
+                    callbacks: { label: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toFixed(2)}` }
                 }
             },
             scales: {
                 x: {
-                    grid: { color: 'rgba(30,30,58,0.6)', drawTicks: false },
-                    ticks: { font: { size: 9 }, color: '#2e3848', maxRotation: 0, maxTicksLimit: 6 },
+                    grid: { color: 'rgba(28, 35, 51, 0.5)', drawTicks: false },
+                    ticks: { font: { family: 'JetBrains Mono', size: 9 }, color: '#2E3848', maxRotation: 0, maxTicksLimit: 6 },
                     border: { display: false }
                 },
                 y: {
-                    grid: { color: 'rgba(30,30,58,0.6)', drawTicks: false },
-                    ticks: { font: { size: 9 }, color: '#2e3848', callback: v => '$' + v },
+                    grid: { color: 'rgba(28, 35, 51, 0.5)', drawTicks: false },
+                    ticks: { font: { family: 'JetBrains Mono', size: 9 }, color: '#2E3848', callback: v => '$' + v },
                     border: { display: false }
                 }
             },
-            layout: { padding: { top: 4 } }
+            layout: { padding: { top: 2 } }
         }
     });
 }
+refreshChart();
+setInterval(refreshChart, 30000);
 
-refreshCryptoChart();
-setInterval(refreshCryptoChart, 30000);
+/* ── Strategy Comparison ── */
+async function loadStrategies() {
+    try {
+        const resp = await fetch('/api/crypto/strategies');
+        const items = await resp.json();
+        const el = document.getElementById('crypto-strategies');
+        if (!el) return;
+        if (!items || items.length === 0) {
+            el.innerHTML = '<p class="muted">No active strategies.</p>';
+            return;
+        }
+        let html = '<div class="table-scroll"><table><tr><th>Strategy</th><th>Trades</th><th>Win%</th><th>P&amp;L</th></tr>';
+        items.forEach(s => {
+            const wrStr  = s.win_rate != null ? (s.win_rate * 100).toFixed(0) + '%' : '—';
+            const pnl    = s.total_pnl ?? null;
+            const pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '—';
+            const pnlStyle = pnl != null ? (pnl >= 0 ? 'color:var(--neon);font-weight:600' : 'color:var(--red);font-weight:600') : 'color:var(--text-ghost)';
+            html += `<tr>
+                <td style="font-weight:500">${esc(s.strategy || '—')}</td>
+                <td style="color:var(--text-dim)">${s.total_trades ?? 0}</td>
+                <td style="color:var(--text-secondary)">${wrStr}</td>
+                <td style="${pnlStyle}">${pnlStr}</td>
+            </tr>`;
+        });
+        html += '</table></div>';
+        el.innerHTML = html;
+    } catch { /* silent */ }
+}
+loadStrategies();
+setInterval(loadStrategies, 30000);
+
+/* ── Incubation ── */
+async function loadIncubation() {
+    try {
+        const resp = await fetch('/api/crypto/incubation');
+        const items = await resp.json();
+        const el = document.getElementById('crypto-incubation');
+        if (!el) return;
+        if (!items || items.length === 0) {
+            el.innerHTML = '<p class="muted">No strategies in incubation.</p>';
+            return;
+        }
+        let html = '<div class="table-scroll"><table><tr><th>Strategy</th><th>Size</th><th>Trades</th><th>P&amp;L</th><th>Status</th></tr>';
+        items.forEach(s => {
+            const pnl      = s.total_pnl ?? null;
+            const pnlStr   = pnl != null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '—';
+            const pnlStyle = pnl != null ? (pnl >= 0 ? 'color:var(--neon);font-weight:600' : 'color:var(--red);font-weight:600') : 'color:var(--text-ghost)';
+            const st = s.status || '';
+            let pillHtml;
+            if (st === 'incubating')
+                pillHtml = '<span class="badge badge-dry">INCUBATING</span>';
+            else if (st === 'scaled')
+                pillHtml = '<span class="badge" style="background:var(--neon-dim);color:var(--neon);border:1px solid rgba(0,230,138,0.2)">SCALED</span>';
+            else if (st === 'retired')
+                pillHtml = '<span class="badge" style="background:var(--red-dim);color:var(--red);border:1px solid rgba(239,68,68,0.2)">RETIRED</span>';
+            else
+                pillHtml = `<span class="badge" style="background:var(--surface-raised);color:var(--text-dim);border:1px solid var(--border)">${esc(st)}</span>`;
+            html += `<tr>
+                <td style="font-weight:500">${esc(s.strategy || '—')}</td>
+                <td style="color:var(--text-dim)">$${(s.position_size || 0).toFixed(2)}</td>
+                <td style="color:var(--text-dim)">${s.total_trades ?? 0}</td>
+                <td style="${pnlStyle}">${pnlStr}</td>
+                <td>${pillHtml}</td>
+            </tr>`;
+        });
+        html += '</table></div>';
+        el.innerHTML = html;
+    } catch { /* silent */ }
+}
+loadIncubation();
+setInterval(loadIncubation, 30000);
+
+/* ── Top Backtests ── */
+async function loadBacktests() {
+    try {
+        const resp = await fetch('/api/crypto/backtests');
+        const items = await resp.json();
+        const el = document.getElementById('crypto-backtests');
+        if (!el) return;
+        if (!items || items.length === 0) {
+            el.innerHTML = '<p class="muted">No backtest results yet.</p>';
+            return;
+        }
+        let html = '<div class="table-scroll"><table><tr><th>Strategy</th><th>Trades</th><th>Win%</th><th>Exp</th><th>P&amp;L</th></tr>';
+        items.slice(0, 10).forEach(b => {
+            const wrStr  = b.win_rate != null ? (b.win_rate * 100).toFixed(0) + '%' : '—';
+            const expStr = b.expectancy != null ? (b.expectancy >= 0 ? '+' : '') + '$' + Math.abs(b.expectancy).toFixed(2) : '—';
+            const pnl    = b.pnl ?? b.total_pnl ?? null;
+            const pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '—';
+            const pnlStyle = pnl != null ? (pnl >= 0 ? 'color:var(--neon);font-weight:600' : 'color:var(--red);font-weight:600') : 'color:var(--text-ghost)';
+            html += `<tr>
+                <td style="font-weight:500">${esc(b.strategy || '—')}</td>
+                <td style="color:var(--text-dim)">${b.total_trades ?? '—'}</td>
+                <td style="color:var(--text-secondary)">${wrStr}</td>
+                <td style="color:var(--blue)">${expStr}</td>
+                <td style="${pnlStyle}">${pnlStr}</td>
+            </tr>`;
+        });
+        html += '</table></div>';
+        el.innerHTML = html;
+    } catch { /* silent */ }
+}
+loadBacktests();
+setInterval(loadBacktests, 30000);
 </script>
 </body>
 </html>
