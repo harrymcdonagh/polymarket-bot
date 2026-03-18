@@ -34,15 +34,11 @@ class Settler:
         Returns a dict mapping conditionId -> market data.
         """
         found: dict[str, dict] = {}
-        # Get token ID mapping from DB
+        # Get token ID mapping from DB (populated by the scanner)
         token_map = self.db.get_token_ids_for_conditions(condition_ids)
-
-        # Bootstrap: if token IDs are missing, scan active markets to populate them
-        missing = condition_ids - set(token_map.keys())
+        missing = len(condition_ids) - len(token_map)
         if missing:
-            logger.info(f"Missing token IDs for {len(missing)} markets, scanning active markets...")
-            backfilled = await self._backfill_token_ids(missing)
-            token_map.update(backfilled)
+            logger.warning(f"Missing token IDs for {missing} markets — scanner needs to run first")
 
         if not token_map:
             logger.warning("No token IDs found — cannot fetch market data")
@@ -79,53 +75,6 @@ class Settler:
         except Exception as e:
             logger.warning(f"Market fetch error: {e}")
         return found
-
-    async def _backfill_token_ids(self, condition_ids: set[str]) -> dict[str, str]:
-        """Scan active+closed markets to find and save token IDs for markets missing them."""
-        token_map: dict[str, str] = {}
-        remaining = set(condition_ids)
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                for closed_val in ("false", "true"):
-                    offset = 0
-                    while remaining:
-                        resp = await client.get(
-                            f"{self.gamma_url}/markets",
-                            params={"active": "true", "closed": closed_val,
-                                    "limit": 100, "offset": offset},
-                        )
-                        if resp.status_code == 429:
-                            logger.warning("Rate limited during backfill, waiting 5s...")
-                            await asyncio.sleep(5)
-                            resp = await client.get(
-                                f"{self.gamma_url}/markets",
-                                params={"active": "true", "closed": closed_val,
-                                        "limit": 100, "offset": offset},
-                            )
-                        if resp.status_code != 200:
-                            break
-                        raw = resp.json()
-                        markets = (await raw) if hasattr(raw, "__await__") else raw
-                        if not markets:
-                            break
-                        for m in markets:
-                            cid = m.get("conditionId") or m.get("condition_id", "")
-                            if cid in remaining:
-                                token_ids = json.loads(m.get("clobTokenIds", "[]"))
-                                if token_ids:
-                                    token_map[cid] = token_ids[0]
-                                    remaining.discard(cid)
-                                    # Save to DB for future lookups
-                                    self.db.update_snapshot_token_id(cid, token_ids[0])
-                        if not remaining or len(markets) < 100:
-                            break
-                        offset += 100
-                        await asyncio.sleep(0.05)  # Throttle pagination
-        except Exception as e:
-            logger.warning(f"Token ID backfill error: {e}")
-        if token_map:
-            logger.info(f"Backfilled token IDs for {len(token_map)} markets")
-        return token_map
 
     def _parse_resolution(self, data: dict) -> str | None:
         """Check if a market has resolved. Returns 'YES'/'NO' or None."""
