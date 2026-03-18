@@ -749,9 +749,33 @@ class Database:
         rows = conn.execute("SELECT * FROM crypto_incubation ORDER BY strategy").fetchall()
         return [dict(r) for r in rows]
 
-    def get_top_crypto_backtests(self, limit: int = 5) -> list[dict]:
+    def get_top_crypto_backtests(self, limit: int = 10) -> list[dict]:
+        """Best backtest config per strategy (by expectancy), from the most recent run."""
         if not self._table_exists("crypto_backtests"):
             return []
         conn = self._conn()
-        rows = conn.execute("SELECT * FROM crypto_backtests ORDER BY expectancy DESC LIMIT ?", (limit,)).fetchall()
+        # Best config per strategy (highest expectancy from most recent run)
+        rows = conn.execute(
+            """SELECT strategy,
+                      params,
+                      symbol,
+                      total_trades,
+                      win_rate,
+                      expectancy,
+                      total_pnl,
+                      max_drawdown,
+                      profit_factor,
+                      sharpe,
+                      ran_at
+               FROM crypto_backtests
+               WHERE (strategy, expectancy) IN (
+                   SELECT strategy, MAX(expectancy)
+                   FROM crypto_backtests
+                   GROUP BY strategy
+               )
+               GROUP BY strategy
+               ORDER BY expectancy DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
         return [dict(r) for r in rows]
