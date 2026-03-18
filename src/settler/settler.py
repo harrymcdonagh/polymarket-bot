@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -57,6 +58,13 @@ class Settler:
                             f"{self.gamma_url}/markets",
                             params={"clob_token_ids": token_id, "limit": 1},
                         )
+                        if resp.status_code == 429:
+                            logger.warning("Rate limited, waiting 5s...")
+                            await asyncio.sleep(5)
+                            resp = await client.get(
+                                f"{self.gamma_url}/markets",
+                                params={"clob_token_ids": token_id, "limit": 1},
+                            )
                         if resp.status_code != 200:
                             continue
                         raw = resp.json()
@@ -65,6 +73,7 @@ class Settler:
                             found[cid] = results[0]
                         elif isinstance(results, dict) and results:
                             found[cid] = results
+                        await asyncio.sleep(0.1)  # Throttle: 10 req/s
                     except Exception:
                         continue
         except Exception as e:
@@ -85,6 +94,14 @@ class Settler:
                             params={"active": "true", "closed": closed_val,
                                     "limit": 100, "offset": offset},
                         )
+                        if resp.status_code == 429:
+                            logger.warning("Rate limited during backfill, waiting 5s...")
+                            await asyncio.sleep(5)
+                            resp = await client.get(
+                                f"{self.gamma_url}/markets",
+                                params={"active": "true", "closed": closed_val,
+                                        "limit": 100, "offset": offset},
+                            )
                         if resp.status_code != 200:
                             break
                         raw = resp.json()
@@ -103,6 +120,7 @@ class Settler:
                         if not remaining or len(markets) < 100:
                             break
                         offset += 100
+                        await asyncio.sleep(0.05)  # Throttle pagination
         except Exception as e:
             logger.warning(f"Token ID backfill error: {e}")
         if token_map:

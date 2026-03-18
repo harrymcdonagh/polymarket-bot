@@ -187,10 +187,12 @@ async def test_refresh_open_positions_updates_prices(settler, tmp_db):
     tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
     _insert_snapshot(tmp_db, "cond-1", 0.65)
 
-    await settler.refresh_open_positions()
+    with patch.object(settler, "_fetch_markets_for_ids", new_callable=AsyncMock, return_value={}):
+        await settler.refresh_open_positions()
 
     conn = tmp_db._conn()
     row = conn.execute("SELECT current_price, price_updated_at FROM trades WHERE id = 1").fetchone()
+    # Falls back to snapshot price when API returns nothing
     assert row["current_price"] == pytest.approx(0.65)
     assert row["price_updated_at"] is not None
 
@@ -200,7 +202,8 @@ async def test_refresh_open_positions_no_snapshot(settler, tmp_db):
     """No snapshot means no price update."""
     tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
 
-    await settler.refresh_open_positions()
+    with patch.object(settler, "_fetch_markets_for_ids", new_callable=AsyncMock, return_value={}):
+        await settler.refresh_open_positions()
 
     conn = tmp_db._conn()
     row = conn.execute("SELECT current_price FROM trades WHERE id = 1").fetchone()
@@ -213,7 +216,8 @@ async def test_refresh_updates_both_trades_same_market(settler, tmp_db):
     tmp_db.save_trade("cond-1", "NO", 5.0, 0.5, status="dry_run", predicted_prob=0.3)
     _insert_snapshot(tmp_db, "cond-1", 0.60)
 
-    await settler.refresh_open_positions()
+    with patch.object(settler, "_fetch_markets_for_ids", new_callable=AsyncMock, return_value={}):
+        await settler.refresh_open_positions()
 
     conn = tmp_db._conn()
     rows = conn.execute("SELECT current_price FROM trades WHERE market_id = 'cond-1'").fetchall()
