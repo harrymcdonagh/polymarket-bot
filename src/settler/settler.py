@@ -150,14 +150,14 @@ class Settler:
         # Fetch live market data (paginated scan)
         market_data = await self._fetch_markets_for_ids(market_ids)
 
-        # Extract prices from market data
+        # Extract prices from market data (include 0 and 1 for closed markets)
         prices: dict[str, float] = {}
         for cid, data in market_data.items():
             try:
                 outcome = json.loads(data.get("outcomePrices", "[]"))
                 if len(outcome) >= 2:
                     p = float(outcome[0])
-                    if 0 < p < 1:
+                    if 0 <= p <= 1:
                         prices[cid] = p
             except (json.JSONDecodeError, TypeError, ValueError):
                 continue
@@ -166,7 +166,7 @@ class Settler:
         for market_id in market_ids:
             if market_id not in prices:
                 snap_price = self.db.get_latest_snapshot_price(market_id)
-                if snap_price is not None and 0 < snap_price < 1:
+                if snap_price is not None and 0 <= snap_price <= 1:
                     prices[market_id] = snap_price
 
         logger.info(f"Got prices for {len(prices)}/{len(market_ids)} markets")
@@ -247,7 +247,7 @@ class Settler:
                 outcome = json.loads(data.get("outcomePrices", "[]"))
                 if len(outcome) >= 2:
                     p = float(outcome[0])
-                    if 0 < p < 1:
+                    if 0 <= p <= 1:
                         prices[cid] = p
             except (json.JSONDecodeError, TypeError, ValueError):
                 continue
@@ -257,7 +257,7 @@ class Settler:
             for market_id in position_ids:
                 if market_id not in prices:
                     snap_price = self.db.get_latest_snapshot_price(market_id)
-                    if snap_price is not None and 0 < snap_price < 1:
+                    if snap_price is not None and 0 <= snap_price <= 1:
                         prices[market_id] = snap_price
 
             logger.info(f"Got prices for {len(prices)}/{len(position_ids)} markets")
