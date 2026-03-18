@@ -77,13 +77,15 @@ class Settler:
         return found
 
     def _parse_resolution(self, data: dict) -> str | None:
-        """Check if a market has resolved. Returns 'YES'/'NO' or None."""
+        """Check if a market has resolved or closed. Returns 'YES'/'NO' or None.
+
+        Polymarket markets go closed (no more trading) before resolved
+        (official settlement). We treat closed as settled since the
+        outcome prices are already at 0/1 by that point.
+        """
         resolved = data.get("resolved", False)
         closed = data.get("closed", False)
-        if not resolved:
-            if closed:
-                cid = (data.get("conditionId") or "")[:16]
-                logger.info(f"Market {cid}… is closed but not yet resolved")
+        if not resolved and not closed:
             return None
 
         prices_str = data.get("outcomePrices", "[]")
