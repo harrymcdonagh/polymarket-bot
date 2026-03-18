@@ -262,5 +262,42 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
             return JSONResponse(result, status_code=400)
         return result
 
+    @app.get("/crypto", response_class=HTMLResponse)
+    async def crypto_page(request: Request):
+        if templates:
+            return templates.TemplateResponse("crypto.html", {"request": request})
+        return HTMLResponse("<h1>Crypto Dashboard</h1><p>Template not found.</p>")
+
+    @app.get("/api/crypto/stats")
+    async def api_crypto_stats():
+        stats = await asyncio.to_thread(service.db.get_crypto_trade_stats)
+        daily_pnl = await asyncio.to_thread(service.db.get_crypto_daily_pnl) if hasattr(service.db, 'get_crypto_daily_pnl') else 0.0
+        stats["today_pnl"] = round(daily_pnl, 2) if isinstance(daily_pnl, (int, float)) else 0.0
+        stats["bankroll"] = getattr(service.settings, 'CRYPTO_BANKROLL', 0)
+        return stats
+
+    @app.get("/api/crypto/trades")
+    async def api_crypto_trades(page: int = 1, per_page: int = 20):
+        all_trades = await asyncio.to_thread(service.db.get_recent_crypto_trades, 200)
+        total = len(all_trades)
+        start = (page - 1) * per_page
+        return {"items": all_trades[start:start + per_page], "total": total, "page": page}
+
+    @app.get("/api/crypto/pnl-history")
+    async def api_crypto_pnl_history():
+        return await asyncio.to_thread(service.db.get_crypto_pnl_history)
+
+    @app.get("/api/crypto/strategies")
+    async def api_crypto_strategies():
+        return await asyncio.to_thread(service.db.get_crypto_strategy_stats)
+
+    @app.get("/api/crypto/incubation")
+    async def api_crypto_incubation():
+        return await asyncio.to_thread(service.db.get_all_incubations)
+
+    @app.get("/api/crypto/backtests")
+    async def api_crypto_backtests():
+        return await asyncio.to_thread(service.db.get_top_crypto_backtests, 5)
+
     app.state.service = service
     return app
