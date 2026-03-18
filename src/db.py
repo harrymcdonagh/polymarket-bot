@@ -634,3 +634,86 @@ class Database:
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ---------------------------------------------------------------------------
+    # Crypto read methods (tables created by the crypto bot — may not exist yet)
+    # ---------------------------------------------------------------------------
+
+    def _table_exists(self, table_name: str) -> bool:
+        conn = self._conn()
+        row = conn.execute(
+            "SELECT COUNT(*) as n FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,),
+        ).fetchone()
+        return row["n"] > 0
+
+    def get_crypto_trade_stats(self) -> dict:
+        if not self._table_exists("crypto_trades"):
+            return {"total_trades": 0, "settled": 0, "wins": 0, "losses": 0, "win_rate": 0.0, "total_pnl": 0.0}
+        conn = self._conn()
+        total = conn.execute("SELECT COUNT(*) as n FROM crypto_trades").fetchone()["n"]
+        settled_statuses = ('won', 'lost', 'dry_run_won', 'dry_run_lost')
+        ph = ",".join("?" for _ in settled_statuses)
+        settled = conn.execute(f"SELECT COUNT(*) as n FROM crypto_trades WHERE status IN ({ph})", settled_statuses).fetchone()["n"]
+        win_statuses = ('won', 'dry_run_won')
+        wph = ",".join("?" for _ in win_statuses)
+        wins = conn.execute(f"SELECT COUNT(*) as n FROM crypto_trades WHERE status IN ({wph})", win_statuses).fetchone()["n"]
+        total_pnl = conn.execute(f"SELECT COALESCE(SUM(pnl), 0) as s FROM crypto_trades WHERE status IN ({ph})", settled_statuses).fetchone()["s"]
+        return {
+            "total_trades": total, "settled": settled, "wins": wins,
+            "losses": settled - wins,
+            "win_rate": round(wins / settled, 4) if settled > 0 else 0.0,
+            "total_pnl": round(total_pnl, 2),
+        }
+
+    def get_recent_crypto_trades(self, limit: int = 50) -> list[dict]:
+        if not self._table_exists("crypto_trades"):
+            return []
+        conn = self._conn()
+        rows = conn.execute("SELECT * FROM crypto_trades ORDER BY placed_at DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_crypto_pnl_history(self) -> list[dict]:
+        if not self._table_exists("crypto_pnl_daily"):
+            return []
+        conn = self._conn()
+        rows = conn.execute("SELECT * FROM crypto_pnl_daily ORDER BY date ASC").fetchall()
+        return [dict(r) for r in rows]
+
+    def get_crypto_strategy_stats(self) -> list[dict]:
+        if not self._table_exists("crypto_trades"):
+            return []
+        conn = self._conn()
+        rows = conn.execute(
+            """SELECT strategy,
+                      SUM(CASE WHEN status IN ('won', 'dry_run_won') THEN 1 ELSE 0 END) as wins,
+                      SUM(CASE WHEN status IN ('lost', 'dry_run_lost') THEN 1 ELSE 0 END) as losses,
+                      COALESCE(SUM(pnl), 0) as total_pnl
+               FROM crypto_trades
+               WHERE status IN ('won', 'lost', 'dry_run_won', 'dry_run_lost')
+               GROUP BY strategy"""
+        ).fetchall()
+        result = []
+        for r in rows:
+            total = r["wins"] + r["losses"]
+            result.append({
+                "strategy": r["strategy"], "total_trades": total,
+                "wins": r["wins"], "losses": r["losses"],
+                "win_rate": round(r["wins"] / total, 4) if total > 0 else 0.0,
+                "total_pnl": round(r["total_pnl"], 2),
+            })
+        return result
+
+    def get_all_incubations(self) -> list[dict]:
+        if not self._table_exists("crypto_incubation"):
+            return []
+        conn = self._conn()
+        rows = conn.execute("SELECT * FROM crypto_incubation ORDER BY strategy").fetchall()
+        return [dict(r) for r in rows]
+
+    def get_top_crypto_backtests(self, limit: int = 5) -> list[dict]:
+        if not self._table_exists("crypto_backtests"):
+            return []
+        conn = self._conn()
+        rows = conn.execute("SELECT * FROM crypto_backtests ORDER BY expectancy DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
