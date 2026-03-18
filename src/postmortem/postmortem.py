@@ -61,8 +61,12 @@ class PostmortemAnalyzer:
     ) -> dict:
         previous_lessons = ""
         if self.db:
-            lessons = self.db.get_lessons()
-            previous_lessons = "\n".join(f"- {l['lesson']}" for l in lessons[-20:])
+            rules = self.db.get_latest_rules()
+            if rules:
+                previous_lessons = rules["ruleset"]
+            else:
+                lessons = self.db.get_lessons()
+                previous_lessons = "\n".join(f"- {l['lesson']}" for l in lessons[-20:])
 
         outcome_description = "was CORRECT" if was_correct else "was WRONG"
 
