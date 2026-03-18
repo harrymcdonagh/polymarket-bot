@@ -81,7 +81,7 @@ class PostmortemAnalyzer:
         try:
             response = self.client.messages.create(
                 model=self.settings.POSTMORTEM_MODEL,
-                max_tokens=1000,
+                max_tokens=2000,
                 messages=[{"role": "user", "content": prompt}],
             )
             text = response.content[0].text.strip()
