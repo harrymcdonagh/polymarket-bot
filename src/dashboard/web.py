@@ -125,6 +125,10 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
     async def api_lessons():
         return await asyncio.to_thread(service.get_lessons)
 
+    @app.get("/api/feature-suggestions")
+    async def api_feature_suggestions():
+        return await asyncio.to_thread(service.get_feature_suggestions)
+
     @app.get("/api/status")
     async def api_status():
         return service.get_bot_status()

@@ -138,6 +138,16 @@ class DashboardService:
     def get_lessons(self, category: str | None = None) -> list[dict]:
         return self.db.get_lessons(category)
 
+    def get_feature_suggestions(self) -> list[dict]:
+        rules = self.db.get_latest_rules()
+        if not rules or not rules.get("feature_suggestions"):
+            return []
+        import json
+        try:
+            return json.loads(rules["feature_suggestions"])
+        except (json.JSONDecodeError, TypeError):
+            return []
+
     def get_bot_status(self) -> dict:
         uptime = (datetime.now(timezone.utc) - self._started_at).total_seconds()
         return {
