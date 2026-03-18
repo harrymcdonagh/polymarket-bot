@@ -34,8 +34,9 @@ def main():
         async def run_backtest():
             feed = CryptoDataFeed()
             symbol = f"{settings.CRYPTO_SYMBOL}/USDT"
-            logger.info(f"Fetching {settings.CRYPTO_CANDLE_WINDOW} candles for {symbol}...")
-            df = await feed.fetch_candles(symbol, limit=settings.CRYPTO_CANDLE_WINDOW, min_candles=60)
+            candles = 5000
+            logger.info(f"Fetching {candles} candles for {symbol} (this may take a moment)...")
+            df = await feed.fetch_candles(symbol, limit=candles, min_candles=60)
             await feed.close()
             if df is None:
                 logger.error("Failed to fetch candle data")
