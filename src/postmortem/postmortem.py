@@ -133,7 +133,7 @@ class PostmortemAnalyzer:
         if not self.db:
             return []
 
-        trades = self.db.get_all_settled_trades(limit=10, exclude_postmortem_done=True)
+        trades = self.db.get_all_settled_trades(limit=500, exclude_postmortem_done=True)
         if not trades:
             return []
 
