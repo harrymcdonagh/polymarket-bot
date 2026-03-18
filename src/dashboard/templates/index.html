@@ -146,9 +146,19 @@
     };
 
     function renderChart() {
-        const data = _chartData;
+        let data = _chartData;
         if (!data.length) return;
         const cfg = chartConfigs[_chartMode];
+        // For win rate and Brier, trim to first data point
+        if (_chartMode === 'winrate') {
+            const firstIdx = data.findIndex(d => d.win_rate != null);
+            if (firstIdx < 0) return;
+            data = data.slice(firstIdx);
+        } else if (_chartMode === 'brier') {
+            const firstIdx = data.findIndex(d => d.brier_score != null);
+            if (firstIdx < 0) return;
+            data = data.slice(firstIdx);
+        }
         const labels = data.map(d => d.date);
         const ctx = document.getElementById('pnl-chart').getContext('2d');
 
