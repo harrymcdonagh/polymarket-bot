@@ -1,3 +1,4 @@
+import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from src.settler.settler import Settler
@@ -241,3 +242,81 @@ async def test_run_does_single_bulk_fetch(settler, tmp_db):
     # Trade should NOT be settled (not resolved)
     trades = tmp_db.get_unresolved_dry_run_trades()
     assert len(trades) == 1
+
+
+@pytest.mark.asyncio
+async def test_consolidation_runs_when_new_lessons(tmp_path):
+    """Consolidation should run when new lessons exist since last consolidation."""
+    db_path = str(tmp_path / "test.db")
+    db = Database(db_path)
+    db.init()
+
+    db.save_lesson(category="risk_management", lesson="Never bet on low confidence")
+
+    notifier = MagicMock()
+    notifier.is_enabled = False
+
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text=json.dumps({
+        "rules": ["RISK: Never bet on low confidence predictions"],
+        "feature_suggestions": [{"name": "confidence_flag", "priority": "high"}],
+    }))]
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = mock_response
+
+    settler = Settler(db=db, notifier=notifier)
+    settler._consolidation_client = mock_client
+    await settler._maybe_consolidate_lessons()
+
+    rules = db.get_latest_rules()
+    assert rules is not None
+    assert "RISK: Never bet on low confidence" in rules["ruleset"]
+    assert rules["lesson_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_consolidation_skips_when_no_new_lessons(tmp_path):
+    """Consolidation should skip when no new lessons since last run."""
+    db_path = str(tmp_path / "test.db")
+    db = Database(db_path)
+    db.init()
+
+    db.save_lesson(category="risk_management", lesson="test")
+    db.save_consolidated_rules(ruleset="existing rules", feature_suggestions="[]", lesson_count=1)
+
+    notifier = MagicMock()
+    notifier.is_enabled = False
+    settler = Settler(db=db, notifier=notifier)
+    mock_client = MagicMock()
+    settler._consolidation_client = mock_client
+
+    await settler._maybe_consolidate_lessons()
+
+    mock_client.messages.create.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_consolidation_handles_malformed_json(tmp_path):
+    """Consolidation should retain previous rules when LLM returns bad JSON."""
+    db_path = str(tmp_path / "test.db")
+    db = Database(db_path)
+    db.init()
+
+    db.save_consolidated_rules(ruleset="old rules", feature_suggestions="[]", lesson_count=1)
+    db.save_lesson(category="risk_management", lesson="lesson one")
+    db.save_lesson(category="risk_management", lesson="lesson two")
+
+    notifier = MagicMock()
+    notifier.is_enabled = False
+
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text="```json\n{invalid json truncated")]
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = mock_response
+
+    settler = Settler(db=db, notifier=notifier)
+    settler._consolidation_client = mock_client
+    await settler._maybe_consolidate_lessons()
+
+    rules = db.get_latest_rules()
+    assert rules["ruleset"] == "old rules"

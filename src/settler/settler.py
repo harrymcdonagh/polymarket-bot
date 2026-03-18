@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -12,6 +13,24 @@ if TYPE_CHECKING:
     from src.postmortem.postmortem import PostmortemAnalyzer
 
 logger = logging.getLogger(__name__)
+
+CONSOLIDATION_PROMPT = """You are a trading system analyst. Below are all lessons learned from prediction market trades, grouped by category. Consolidate them into:
+
+1. A compact RULESET (15-20 rules max) — actionable rules the system should follow. Each rule should be prefixed with its category (RISK, MODEL, DATA, SENTIMENT, MARKET). Keep each rule under 150 characters. Merge similar lessons into single rules. Drop lessons that are too vague or situational to be actionable.
+
+2. FEATURE SUGGESTIONS for the XGBoost model — concrete numerical features that could improve predictions, based on patterns in the lessons. Each suggestion needs a name, description, rationale, and priority (high/medium/low).
+
+Lessons by category:
+{lessons_by_category}
+
+Return ONLY valid JSON:
+{{
+  "rules": ["CATEGORY: rule text", ...],
+  "feature_suggestions": [
+    {{"name": "feature_name", "description": "what it measures", "rationale": "why it would help", "priority": "high|medium|low"}},
+    ...
+  ]
+}}"""
 
 
 class Settler:
@@ -413,7 +432,82 @@ class Settler:
                     f"Our improvement: {improvement:+.4f} ({'better' if improvement > 0 else 'worse'})"
                 )
 
+        await self._maybe_consolidate_lessons()
         await self._maybe_send_daily_summary()
+
+    async def _maybe_consolidate_lessons(self) -> None:
+        """Consolidate lessons into a compact ruleset once daily when new lessons exist."""
+        if not self.db.has_new_lessons_since_consolidation():
+            return
+
+        lessons = self.db.get_lessons()
+        if not lessons:
+            return
+
+        # Cap at 500 most recent
+        if len(lessons) > 500:
+            logger.warning(f"Truncating {len(lessons)} lessons to 500 for consolidation")
+            lessons = lessons[-500:]
+
+        # Group by category
+        by_category: dict[str, list[str]] = {}
+        for l in lessons:
+            cat = l.get("category", "unknown")
+            by_category.setdefault(cat, []).append(l["lesson"])
+
+        lessons_text = ""
+        for cat, items in sorted(by_category.items()):
+            lessons_text += f"\n## {cat.upper()} ({len(items)} lessons)\n"
+            for item in items:
+                lessons_text += f"- {item}\n"
+
+        client = getattr(self, '_consolidation_client', None)
+        if client is None:
+            import anthropic
+            from src.config import Settings
+            settings = Settings()
+            client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        else:
+            from src.config import Settings
+            settings = Settings()
+
+        try:
+            response = client.messages.create(
+                model=settings.POSTMORTEM_MODEL,
+                max_tokens=4096,
+                messages=[{"role": "user", "content": CONSOLIDATION_PROMPT.format(
+                    lessons_by_category=lessons_text,
+                )}],
+            )
+            text = response.content[0].text.strip()
+            # Strip markdown fences
+            text = re.sub(r'^```(?:json)?\s*', '', text)
+            text = re.sub(r'\s*```\s*$', '', text)
+            text = text.strip()
+
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                json_match = re.search(r'\{.*\}', text, re.DOTALL)
+                if json_match:
+                    data = json.loads(json_match.group())
+                else:
+                    logger.error(f"Consolidation returned invalid JSON: {text[:200]}")
+                    return  # Retain previous rules
+
+            rules = data.get("rules", [])
+            feature_suggestions = json.dumps(data.get("feature_suggestions", []))
+            ruleset = "\n".join(rules)
+
+            self.db.save_consolidated_rules(
+                ruleset=ruleset,
+                feature_suggestions=feature_suggestions,
+                lesson_count=len(lessons),
+            )
+            logger.info(f"Consolidated {len(lessons)} lessons into {len(rules)} rules, {len(data.get('feature_suggestions', []))} feature suggestions")
+
+        except Exception as e:
+            logger.error(f"Lesson consolidation failed: {e} — retaining previous rules")
 
     async def _maybe_send_daily_summary(self) -> None:
         """Send daily summary if it hasn't been sent today."""
