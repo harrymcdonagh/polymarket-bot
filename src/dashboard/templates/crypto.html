@@ -394,13 +394,18 @@ async function loadBacktests() {
         }
         let html = '<div class="table-scroll"><table><tr><th>Strategy</th><th>Trades</th><th>Win%</th><th>Exp</th><th>P&amp;L</th></tr>';
         items.slice(0, 10).forEach(b => {
-            /* Build display name with params */
+            /* Build display name with key params only */
             let name = b.strategy || '—';
             if (b.params) {
                 try {
                     const p = typeof b.params === 'string' ? JSON.parse(b.params) : b.params;
-                    const vals = Object.values(p).join('/');
-                    name += ` (${vals})`;
+                    let short;
+                    if (b.strategy === 'macd_hist') short = `${p.macd_fast}/${p.macd_slow}/${p.macd_signal}`;
+                    else if (b.strategy === 'rsi_bb') short = `${p.rsi_length}/${p.bb_length}/${p.bb_std}`;
+                    else if (b.strategy === 'ema_cross') short = `${p.ema_fast}/${p.ema_slow}`;
+                    else if (b.strategy === 'vwap_cap') short = `${p.vol_spike_min}/${p.vwap_revert_pct}`;
+                    else short = Object.values(p).join('/');
+                    name += ` (${short})`;
                 } catch { /* use name without params */ }
             }
             const wrStr  = b.win_rate != null ? (b.win_rate * 100).toFixed(0) + '%' : '—';
@@ -424,18 +429,18 @@ loadBacktests();
 setInterval(loadBacktests, 30000);
 
 /* ── Strategy selector ── */
-const STRATEGY_OPTIONS = {
-    'macd_hist (3/15/3)':    { strategy: 'macd_hist', params: '{"macd_fast":3,"macd_slow":15,"macd_signal":3}' },
-    'macd_hist (8/21/5)':    { strategy: 'macd_hist', params: '{"macd_fast":8,"macd_slow":21,"macd_signal":5}' },
-    'macd_hist (12/26/9)':   { strategy: 'macd_hist', params: '{"macd_fast":12,"macd_slow":26,"macd_signal":9}' },
-    'rsi_bb (7/20/2.0)':     { strategy: 'rsi_bb',    params: '{"rsi_length":7,"bb_length":20,"bb_std":2.0,"rsi_oversold":30,"rsi_overbought":70,"squeeze_threshold":0.02}' },
-    'rsi_bb (14/20/2.0)':    { strategy: 'rsi_bb',    params: '{"rsi_length":14,"bb_length":20,"bb_std":2.0,"rsi_oversold":25,"rsi_overbought":75,"squeeze_threshold":0.015}' },
-    'ema_cross (5/13)':      { strategy: 'ema_cross',  params: '{"ema_fast":5,"ema_slow":13}' },
-    'ema_cross (8/21)':      { strategy: 'ema_cross',  params: '{"ema_fast":8,"ema_slow":21}' },
-    'ema_cross (3/10)':      { strategy: 'ema_cross',  params: '{"ema_fast":3,"ema_slow":10}' },
-    'vwap_cap (2.0/0.001)':  { strategy: 'vwap_cap',   params: '{"vol_spike_min":2.0,"vwap_revert_pct":0.001,"vol_sma_length":20}' },
-    'vwap_cap (3.0/0.0005)': { strategy: 'vwap_cap',   params: '{"vol_spike_min":3.0,"vwap_revert_pct":0.0005,"vol_sma_length":20}' },
-};
+const STRATEGY_OPTIONS = [
+    { label: 'macd_hist (3/15/3)',    strategy: 'macd_hist', params: '{"macd_fast":3,"macd_slow":15,"macd_signal":3}' },
+    { label: 'macd_hist (8/21/5)',    strategy: 'macd_hist', params: '{"macd_fast":8,"macd_slow":21,"macd_signal":5}' },
+    { label: 'macd_hist (12/26/9)',   strategy: 'macd_hist', params: '{"macd_fast":12,"macd_slow":26,"macd_signal":9}' },
+    { label: 'rsi_bb (7/20/2.0)',     strategy: 'rsi_bb',    params: '{"rsi_length":7,"bb_length":20,"bb_std":2.0,"rsi_oversold":30,"rsi_overbought":70,"squeeze_threshold":0.02}' },
+    { label: 'rsi_bb (14/20/2.0)',    strategy: 'rsi_bb',    params: '{"rsi_length":14,"bb_length":20,"bb_std":2.0,"rsi_oversold":25,"rsi_overbought":75,"squeeze_threshold":0.015}' },
+    { label: 'ema_cross (5/13)',      strategy: 'ema_cross',  params: '{"ema_fast":5,"ema_slow":13}' },
+    { label: 'ema_cross (8/21)',      strategy: 'ema_cross',  params: '{"ema_fast":8,"ema_slow":21}' },
+    { label: 'ema_cross (3/10)',      strategy: 'ema_cross',  params: '{"ema_fast":3,"ema_slow":10}' },
+    { label: 'vwap_cap (2.0/0.001)',  strategy: 'vwap_cap',   params: '{"vol_spike_min":2.0,"vwap_revert_pct":0.001,"vol_sma_length":20}' },
+    { label: 'vwap_cap (3.0/0.0005)', strategy: 'vwap_cap',   params: '{"vol_spike_min":3.0,"vwap_revert_pct":0.0005,"vol_sma_length":20}' },
+];
 
 async function loadCurrentConfig() {
     try {
@@ -443,13 +448,13 @@ async function loadCurrentConfig() {
         const cfg = await resp.json();
         const sel = document.getElementById('strategy-select');
         sel.innerHTML = '';
-        for (const [label, opt] of Object.entries(STRATEGY_OPTIONS)) {
+        STRATEGY_OPTIONS.forEach((opt, i) => {
             const el = document.createElement('option');
-            el.value = label;
-            el.textContent = label;
+            el.value = i;
+            el.textContent = opt.label;
             if (opt.strategy === cfg.strategy && opt.params === cfg.params) el.selected = true;
             sel.appendChild(el);
-        }
+        });
         /* Set candle selector */
         const cSel = document.getElementById('candle-select');
         for (const opt of cSel.options) {
@@ -461,7 +466,7 @@ loadCurrentConfig();
 
 async function applyStrategy() {
     const sel = document.getElementById('strategy-select');
-    const chosen = STRATEGY_OPTIONS[sel.value];
+    const chosen = STRATEGY_OPTIONS[parseInt(sel.value)];
     if (!chosen) return;
     try {
         const resp = await fetch('/api/crypto/set-strategy', {
