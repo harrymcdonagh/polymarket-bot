@@ -319,13 +319,15 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
         candles = max(100, min(candles, 10000))
 
         import subprocess, os
-        crypto_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "crypto")
+        crypto_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "crypto")
         # Try crypto venv first, fall back to system python
         venv_python = os.path.join(crypto_dir, "venv", "bin", "python")
         if not os.path.exists(venv_python):
             venv_python = os.path.join(crypto_dir, "venv", "Scripts", "python.exe")
         if not os.path.exists(venv_python):
-            return JSONResponse({"status": "error", "message": "Crypto venv not found"}, status_code=500)
+            logger.error(f"Crypto venv not found at {venv_python}, crypto_dir={crypto_dir}")
+            return JSONResponse({"status": "error", "message": f"Crypto venv not found at {crypto_dir}"}, status_code=500)
+        logger.info(f"Starting backtest: {venv_python} run.py --backtest (candles={candles}, cwd={crypto_dir})")
 
         # Update candle count in .env
         env_path = os.path.join(crypto_dir, ".env")
@@ -351,16 +353,18 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
                     stderr=asyncio.subprocess.PIPE,
                 )
                 stdout, stderr = await proc.communicate()
+                logger.info(f"Backtest finished: returncode={proc.returncode}")
+                if stdout:
+                    logger.info(f"Backtest stdout: {stdout.decode()[-500:]}")
                 if proc.returncode == 0:
                     # Only clear old results after successful run
                     if service.db._table_exists("crypto_backtests"):
-                        # Keep only results from the last 60 seconds (the new run)
                         service.db._conn().execute(
                             "DELETE FROM crypto_backtests WHERE ran_at < DATETIME('now', '-60 seconds')"
                         )
                         service.db._conn().commit()
                 else:
-                    logger.error(f"Backtest failed: {stderr.decode()[:500]}")
+                    logger.error(f"Backtest failed (rc={proc.returncode}): {stderr.decode()[:500]}")
             except Exception as e:
                 logger.error(f"Backtest error: {e}")
             finally:
