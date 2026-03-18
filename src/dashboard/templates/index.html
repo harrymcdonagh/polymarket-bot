@@ -9,6 +9,10 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
 </head>
 <body>
+<nav style="display:flex;gap:1.5rem;padding:0.75rem 1.5rem;background:#1a1a2e;border-bottom:1px solid #333;font-size:0.9rem;">
+  <a href="/" style="color:#e0e0e0;text-decoration:none;font-weight:600;">Event Markets</a>
+  <a href="/crypto" style="color:#f0c040;text-decoration:none;">Crypto 5-Min</a>
+</nav>
     <header>
         <h1>Polymarket Bot</h1>
         <div id="status-badge" hx-get="/api/status" hx-trigger="load, every 10s"
