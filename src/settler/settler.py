@@ -359,21 +359,21 @@ class Settler:
                 f"Hypothetical P&L: ${pnl:.2f}"
             )
 
-            # LLM postmortem only on high-confidence wrong predictions
-            if not was_correct:
-                if pred and abs(pred.get("edge", 0)) > 0.05 and self.postmortem:
-                    try:
-                        await self.postmortem.analyze_loss(
-                            question=question,
-                            predicted_prob=trade.get("predicted_prob", 0.5),
-                            actual_outcome=outcome,
-                            pnl=pnl,
-                            reasoning=f"Edge was {pred['edge']:.2%}, confidence {pred['confidence']:.2f}",
-                            predicted_side=trade["side"],
-                            was_correct=was_correct,
-                        )
-                    except Exception as e:
-                        logger.error(f"Postmortem failed for trade {trade['id']}: {e}")
+            # LLM postmortem on all high-edge trades (wins and losses)
+            if pred and abs(pred.get("edge", 0)) > 0.05 and self.postmortem:
+                try:
+                    reasoning = pred.get("reasoning") or f"Edge was {pred['edge']:.2%}, confidence {pred['confidence']:.2f}"
+                    await self.postmortem.analyze_loss(
+                        question=question,
+                        predicted_prob=trade.get("predicted_prob", 0.5),
+                        actual_outcome=outcome,
+                        pnl=pnl,
+                        reasoning=reasoning,
+                        predicted_side=trade["side"],
+                        was_correct=was_correct,
+                    )
+                except Exception as e:
+                    logger.error(f"Postmortem failed for trade {trade['id']}: {e}")
 
             # Mark trade so run_full_postmortem won't re-analyze it
             self.db.mark_postmortem_done(trade["id"])
@@ -388,6 +388,30 @@ class Settler:
                     pnl=pnl,
                 )
                 await self.notifier.send(msg)
+
+        # Brier score calibration tracking
+        settled = self.db.get_all_settled_trades(limit=500)
+        brier_scores = []
+        market_brier = []
+        for t in settled:
+            pred_prob = t.get("predicted_prob")
+            outcome = t.get("resolved_outcome")
+            if pred_prob is not None and outcome in ("YES", "NO"):
+                actual = 1.0 if outcome == "YES" else 0.0
+                brier_scores.append((pred_prob - actual) ** 2)
+                price = t.get("price")
+                if price is not None:
+                    market_brier.append((price - actual) ** 2)
+        if brier_scores:
+            avg_brier = sum(brier_scores) / len(brier_scores)
+            logger.info(f"Calibration Brier score: {avg_brier:.4f} (lower is better, 0.25 = random)")
+            if market_brier:
+                avg_market = sum(market_brier) / len(market_brier)
+                improvement = avg_market - avg_brier
+                logger.info(
+                    f"vs Market baseline: {avg_market:.4f} | "
+                    f"Our improvement: {improvement:+.4f} ({'better' if improvement > 0 else 'worse'})"
+                )
 
         await self._maybe_send_daily_summary()
 
