@@ -100,22 +100,26 @@ class CryptoBot:
         market = await self.scanner.find_active_5min_market(self.settings.CRYPTO_SYMBOL)
         if market is None:
             return
-        # 7. Place trade
-        side = "YES" if signal == 1 else "NO"
-        entry_price = market["yes_price"] if side == "YES" else market["no_price"]
+        # 7. Place trade — outcomes are "Up" / "Down"
+        side = "Up" if signal == 1 else "Down"
+        entry_price = market["up_price"] if side == "Up" else market["down_price"]
+        token_id = market["token_up"] if side == "Up" else market["token_down"]
         btc_price = enriched["close"].iloc[-1]
         status = "dry_run_open" if self.dry_run else "open"
         if not self.dry_run:
-            self._place_order(market["market_id"], market["token_id"], side, size, entry_price)
+            self._place_order(market["market_id"], token_id, side, size, entry_price)
         self.db.save_crypto_trade(
             strategy=self.strategy_name, symbol=self.settings.CRYPTO_SYMBOL,
             market_id=market["market_id"], side=side,
-            entry_price=entry_price, strike_price=market.get("strike_price"),
+            entry_price=entry_price, strike_price=None,
             btc_price_at_entry=btc_price, amount=size,
             status=status, signal_data=json.dumps(meta),
-            token_id=market["token_id"],
+            token_id=token_id,
         )
-        logger.info(f"{'DRY RUN' if self.dry_run else 'LIVE'}: {side} ${size:.2f} @ {entry_price:.2f}")
+        logger.info(
+            f"{'DRY RUN' if self.dry_run else 'LIVE'}: {side} ${size:.2f} @ {entry_price:.2f} | "
+            f"{market['question'][:60]}"
+        )
 
     def _place_order(self, market_id, token_id, side, size, price):
         if self._clob_client is None:

@@ -83,7 +83,7 @@ async def test_settle_open_trades_resolves(tmp_path):
     open_trade = {
         "id": 1,
         "strategy": "macd_hist",
-        "side": "YES",
+        "side": "Up",
         "entry_price": 0.6,
         "amount": 1.5,
         "status": "dry_run_open",
@@ -93,7 +93,7 @@ async def test_settle_open_trades_resolves(tmp_path):
     bot.db.get_open_crypto_trades = MagicMock(return_value=[open_trade])
     bot.db.settle_crypto_trade = MagicMock(return_value=True)
     bot.tracker.update_after_trade = MagicMock()
-    bot.scanner.check_resolution = AsyncMock(return_value="YES")
+    bot.scanner.check_resolution = AsyncMock(return_value="Up")
 
     await bot._settle_open_trades()
 
@@ -114,7 +114,7 @@ async def test_settle_open_trades_no_resolution(tmp_path):
     open_trade = {
         "id": 2,
         "strategy": "macd_hist",
-        "side": "YES",
+        "side": "Up",
         "entry_price": 0.6,
         "amount": 1.5,
         "status": "dry_run_open",
@@ -141,8 +141,8 @@ async def test_run_cycle_risk_blocked(tmp_path):
     bot.scanner = MagicMock()
     bot.scanner.check_resolution = AsyncMock(return_value=None)
     bot.scanner.find_active_5min_market = AsyncMock(return_value={
-        "market_id": "mkt1", "token_id": "tok1",
-        "yes_price": 0.6, "no_price": 0.4, "strike_price": 84000.0,
+        "market_id": "mkt1", "token_up": "tok_up", "token_down": "tok_down",
+        "up_price": 0.6, "down_price": 0.4, "question": "BTC Up or Down",
     })
     # Force signal=1
     bot.strategy.generate_signal = MagicMock(return_value=(1, {"reason": "test"}))
@@ -169,8 +169,8 @@ async def test_run_cycle_saves_trade_dry_run(tmp_path):
     bot.scanner = MagicMock()
     bot.scanner.check_resolution = AsyncMock(return_value=None)
     bot.scanner.find_active_5min_market = AsyncMock(return_value={
-        "market_id": "mkt1", "token_id": "tok1",
-        "yes_price": 0.6, "no_price": 0.4, "strike_price": 84000.0,
+        "market_id": "mkt1", "token_up": "tok_up", "token_down": "tok_down",
+        "up_price": 0.6, "down_price": 0.4, "question": "BTC Up or Down",
     })
     bot.strategy.generate_signal = MagicMock(return_value=(1, {"reason": "test"}))
     bot.risk_manager.check = MagicMock(return_value=(True, ""))
@@ -184,7 +184,7 @@ async def test_run_cycle_saves_trade_dry_run(tmp_path):
 
     bot.db.save_crypto_trade.assert_called_once()
     call_kwargs = bot.db.save_crypto_trade.call_args[1]
-    assert call_kwargs["side"] == "YES"
+    assert call_kwargs["side"] == "Up"
     assert call_kwargs["status"] == "dry_run_open"
     assert call_kwargs["strategy"] == "macd_hist"
 
