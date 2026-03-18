@@ -147,6 +147,7 @@ class Database:
             ("predicted_prob", "REAL"),
             ("current_price", "REAL"),
             ("price_updated_at", "TEXT"),
+            ("postmortem_done", "INTEGER DEFAULT 0"),
         ]
         for col_name, col_type in migrations:
             if col_name not in existing:
@@ -216,16 +217,25 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_all_settled_trades(self, limit: int = 50) -> list[dict]:
+    def get_all_settled_trades(self, limit: int = 50, exclude_postmortem_done: bool = False) -> list[dict]:
         """All settled trades (wins and losses, real and dry-run)."""
         conn = self._conn()
+        where = "WHERE status IN ('settled', 'dry_run_settled')"
+        if exclude_postmortem_done:
+            where += " AND COALESCE(postmortem_done, 0) = 0"
         rows = conn.execute(
-            """SELECT * FROM trades
-               WHERE status IN ('settled', 'dry_run_settled')
+            f"""SELECT * FROM trades
+               {where}
                ORDER BY COALESCE(settled_at, resolved_at) DESC LIMIT ?""",
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def mark_postmortem_done(self, trade_id: int):
+        """Mark a trade as having had its postmortem analysis completed."""
+        conn = self._conn()
+        conn.execute("UPDATE trades SET postmortem_done = 1 WHERE id = ?", (trade_id,))
+        conn.commit()
 
     def save_lesson(self, category: str, lesson: str, source_trade_id: int | None = None):
         conn = self._conn()

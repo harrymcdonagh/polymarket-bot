@@ -375,6 +375,9 @@ class Settler:
                     except Exception as e:
                         logger.error(f"Postmortem failed for trade {trade['id']}: {e}")
 
+            # Mark trade so run_full_postmortem won't re-analyze it
+            self.db.mark_postmortem_done(trade["id"])
+
             # Notify
             if self.notifier.is_enabled:
                 msg = self.notifier.format_settlement_alert(

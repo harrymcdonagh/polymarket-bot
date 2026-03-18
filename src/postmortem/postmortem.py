@@ -133,7 +133,7 @@ class PostmortemAnalyzer:
         if not self.db:
             return []
 
-        trades = self.db.get_all_settled_trades(limit=10)
+        trades = self.db.get_all_settled_trades(limit=10, exclude_postmortem_done=True)
         if not trades:
             return []
 
@@ -194,5 +194,8 @@ class PostmortemAnalyzer:
                     was_correct=was_correct,
                 )
                 reports.append(report)
+
+            # Mark trade as postmortem-done regardless of whether LLM ran
+            self.db.mark_postmortem_done(trade["id"])
 
         return reports
