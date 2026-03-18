@@ -380,13 +380,22 @@ async function loadBacktests() {
         }
         let html = '<div class="table-scroll"><table><tr><th>Strategy</th><th>Trades</th><th>Win%</th><th>Exp</th><th>P&amp;L</th></tr>';
         items.slice(0, 10).forEach(b => {
+            /* Build display name with params */
+            let name = b.strategy || '—';
+            if (b.params) {
+                try {
+                    const p = typeof b.params === 'string' ? JSON.parse(b.params) : b.params;
+                    const vals = Object.values(p).join('/');
+                    name += ` (${vals})`;
+                } catch { /* use name without params */ }
+            }
             const wrStr  = b.win_rate != null ? (b.win_rate * 100).toFixed(0) + '%' : '—';
             const expStr = b.expectancy != null ? (b.expectancy >= 0 ? '+' : '') + '$' + Math.abs(b.expectancy).toFixed(2) : '—';
             const pnl    = b.pnl ?? b.total_pnl ?? null;
             const pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '—';
             const pnlStyle = pnl != null ? (pnl >= 0 ? 'color:var(--neon);font-weight:600' : 'color:var(--red);font-weight:600') : 'color:var(--text-ghost)';
             html += `<tr>
-                <td style="font-weight:500">${esc(b.strategy || '—')}</td>
+                <td style="font-weight:500">${esc(name)}</td>
                 <td style="color:var(--text-dim)">${b.total_trades ?? '—'}</td>
                 <td style="color:var(--text-secondary)">${wrStr}</td>
                 <td style="color:var(--blue)">${expStr}</td>
