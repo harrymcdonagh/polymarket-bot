@@ -673,12 +673,50 @@ class Database:
         rows = conn.execute("SELECT * FROM crypto_trades ORDER BY placed_at DESC LIMIT ?", (limit,)).fetchall()
         return [dict(r) for r in rows]
 
+    def get_crypto_daily_pnl(self) -> float:
+        """Sum of PnL for today's settled crypto trades."""
+        if not self._table_exists("crypto_trades"):
+            return 0.0
+        conn = self._conn()
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        row = conn.execute(
+            """SELECT COALESCE(SUM(pnl), 0) as s FROM crypto_trades
+               WHERE status IN ('won', 'lost', 'dry_run_won', 'dry_run_lost')
+                 AND resolved_at LIKE ?""",
+            (f"{today}%",),
+        ).fetchone()
+        return row["s"]
+
     def get_crypto_pnl_history(self) -> list[dict]:
-        if not self._table_exists("crypto_pnl_daily"):
+        """Daily PnL history. Tries crypto_pnl_daily first, falls back to computing from trades."""
+        if self._table_exists("crypto_pnl_daily"):
+            conn = self._conn()
+            rows = conn.execute("SELECT * FROM crypto_pnl_daily ORDER BY date ASC").fetchall()
+            if rows:
+                return [dict(r) for r in rows]
+        # Fallback: compute from trades
+        if not self._table_exists("crypto_trades"):
             return []
         conn = self._conn()
-        rows = conn.execute("SELECT * FROM crypto_pnl_daily ORDER BY date ASC").fetchall()
-        return [dict(r) for r in rows]
+        rows = conn.execute(
+            """SELECT DATE(resolved_at) as date,
+                      COALESCE(SUM(pnl), 0) as daily_pnl
+               FROM crypto_trades
+               WHERE status IN ('won', 'lost', 'dry_run_won', 'dry_run_lost')
+                 AND resolved_at IS NOT NULL
+               GROUP BY DATE(resolved_at)
+               ORDER BY date"""
+        ).fetchall()
+        history = []
+        cumulative = 0.0
+        for row in rows:
+            cumulative += row["daily_pnl"]
+            history.append({
+                "date": row["date"],
+                "net_pnl": round(row["daily_pnl"], 2),
+                "cumulative_pnl": round(cumulative, 2),
+            })
+        return history
 
     def get_crypto_strategy_stats(self) -> list[dict]:
         if not self._table_exists("crypto_trades"):

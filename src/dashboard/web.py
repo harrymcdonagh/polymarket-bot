@@ -271,9 +271,9 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
     @app.get("/api/crypto/stats")
     async def api_crypto_stats():
         stats = await asyncio.to_thread(service.db.get_crypto_trade_stats)
-        daily_pnl = await asyncio.to_thread(service.db.get_crypto_daily_pnl) if hasattr(service.db, 'get_crypto_daily_pnl') else 0.0
-        stats["today_pnl"] = round(daily_pnl, 2) if isinstance(daily_pnl, (int, float)) else 0.0
-        stats["bankroll"] = getattr(service.settings, 'CRYPTO_BANKROLL', 0)
+        daily_pnl = await asyncio.to_thread(service.db.get_crypto_daily_pnl)
+        stats["today_pnl"] = round(daily_pnl, 2)
+        stats["bankroll"] = getattr(service.settings, 'CRYPTO_BANKROLL', 100.0)
         return stats
 
     @app.get("/api/crypto/trades")
