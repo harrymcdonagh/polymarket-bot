@@ -268,7 +268,8 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
     @app.get("/crypto", response_class=HTMLResponse)
     async def crypto_page(request: Request):
         if templates:
-            return templates.TemplateResponse("crypto.html", {"request": request})
+            template = "crypto-mobile.html" if is_mobile_ua(request) else "crypto.html"
+            return templates.TemplateResponse(template, {"request": request})
         return HTMLResponse("<h1>Crypto Dashboard</h1><p>Template not found.</p>")
 
     @app.get("/api/crypto/stats")

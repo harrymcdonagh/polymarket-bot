@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto 5-Min — Polymarket Bot</title>
+    <link rel="stylesheet" href="/static/mobile.css">
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+</head>
+<body>
+<nav style="display:flex;gap:1.5rem;padding:0.75rem 1.5rem;background:#1a1a2e;border-bottom:1px solid #333;font-size:0.9rem;">
+  <a href="/" style="color:#8B95A5;text-decoration:none;font-weight:600;">Event Markets</a>
+  <a href="/crypto" style="color:#f0c040;text-decoration:none;font-weight:700;">Crypto 5-Min</a>
+</nav>
+    <header>
+        <div class="header-left">
+            <div class="header-dot"></div>
+            <span class="header-title">Crypto 5-Min</span>
+        </div>
+        <div class="header-status"><span class="badge badge-dry">DRY RUN</span></div>
+    </header>
+
+    <main>
+        <section class="stats-grid" id="crypto-stats-grid"
+                 hx-get="/api/crypto/stats" hx-trigger="load, every 10s" hx-swap="innerHTML">
+        </section>
+
+        <!-- 5 Accordion Sections -->
+        <section class="accordion" id="acc-pnl">
+            <div class="accordion-header" onclick="toggleAccordion('pnl')">
+                <span class="accordion-title">PnL Chart</span>
+                <span class="accordion-badge" id="badge-pnl"></span>
+                <span class="accordion-arrow" id="arrow-pnl">&#9654;</span>
+            </div>
+            <div class="accordion-body" id="body-pnl">
+                <div>
+                    <div class="accordion-content">
+                        <canvas id="pnl-chart" style="height:200px;"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="accordion" id="acc-trades">
+            <div class="accordion-header" onclick="toggleAccordion('trades')">
+                <span class="accordion-title">Trades</span>
+                <span class="accordion-badge" id="badge-trades"></span>
+                <span class="accordion-arrow" id="arrow-trades">&#9654;</span>
+            </div>
+            <div class="accordion-body" id="body-trades">
+                <div>
+                    <div class="accordion-content">
+                        <div id="trades-list"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="accordion" id="acc-strategies">
+            <div class="accordion-header" onclick="toggleAccordion('strategies')">
+                <span class="accordion-title">Strategy Comparison</span>
+                <span class="accordion-badge" id="badge-strategies"></span>
+                <span class="accordion-arrow" id="arrow-strategies">&#9654;</span>
+            </div>
+            <div class="accordion-body" id="body-strategies">
+                <div>
+                    <div class="accordion-content">
+                        <div id="strategies-list"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="accordion" id="acc-incubation">
+            <div class="accordion-header" onclick="toggleAccordion('incubation')">
+                <span class="accordion-title">Incubation</span>
+                <span class="accordion-badge" id="badge-incubation"></span>
+                <span class="accordion-arrow" id="arrow-incubation">&#9654;</span>
+            </div>
+            <div class="accordion-body" id="body-incubation">
+                <div>
+                    <div class="accordion-content">
+                        <div id="incubation-list"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="accordion" id="acc-backtests">
+            <div class="accordion-header" onclick="toggleAccordion('backtests')">
+                <span class="accordion-title">Backtests</span>
+                <span class="accordion-badge" id="badge-backtests"></span>
+                <span class="accordion-arrow" id="arrow-backtests">&#9654;</span>
+            </div>
+            <div class="accordion-body" id="body-backtests">
+                <div>
+                    <div class="accordion-content">
+                        <div id="backtests-list"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+    /* ── Dedupe: skip DOM updates when data hasn't changed ── */
+    var _lastResponse = {};
+    function unchanged(key, text) {
+        if (_lastResponse[key] === text) return true;
+        _lastResponse[key] = text;
+        return false;
+    }
+
+    /* ── Utilities ── */
+    function esc(s) {
+        const d = document.createElement('div');
+        d.textContent = String(s ?? '');
+        return d.innerHTML;
+    }
+
+    function toast(msg) {
+        const el = document.createElement('div');
+        el.className = 'toast';
+        el.textContent = msg;
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 3000);
+    }
+
+    /* ── Accordion ── */
+    const ACCORDION_KEY = 'crypto-mobile-accordion-state';
+    const DEFAULT_STATE = { pnl: true, trades: false, strategies: false, incubation: false, backtests: false };
+
+    function getAccordionState() {
+        try {
+            return JSON.parse(localStorage.getItem(ACCORDION_KEY)) || DEFAULT_STATE;
+        } catch { return DEFAULT_STATE; }
+    }
+
+    function saveAccordionState(state) {
+        localStorage.setItem(ACCORDION_KEY, JSON.stringify(state));
+    }
+
+    function toggleAccordion(id) {
+        const state = getAccordionState();
+        state[id] = !state[id];
+        saveAccordionState(state);
+        applyAccordionState();
+        if (id === 'pnl' && state[id] && pnlChart) {
+            setTimeout(() => pnlChart.resize(), 350);
+        }
+    }
+
+    function applyAccordionState() {
+        const state = getAccordionState();
+        for (const [id, open] of Object.entries(state)) {
+            const body = document.getElementById('body-' + id);
+            const arrow = document.getElementById('arrow-' + id);
+            if (body) {
+                body.classList.toggle('open', open);
+                if (arrow) arrow.textContent = open ? '\u25BC' : '\u25B6';
+            }
+        }
+    }
+    applyAccordionState();
+
+    /* ── PnL Chart ── */
+    let pnlChart = null;
+    async function refreshChart() {
+        const resp = await fetch('/api/crypto/pnl-history');
+        const data = await resp.json();
+        if (!Array.isArray(data) || data.length === 0) return;
+        const labels = data.map(function(d) { return d.date || d.time || d.label || ''; });
+        const values = data.map(function(d) { return d.cumulative_pnl ?? d.pnl ?? 0; });
+        const canvas = document.getElementById('pnl-chart');
+        if (!canvas) return;
+
+        if (!pnlChart) {
+            var ctx = canvas.getContext('2d');
+            var gradientTotal = ctx.createLinearGradient(0, 0, 0, 200);
+            gradientTotal.addColorStop(0, 'rgba(245, 158, 11, 0.12)');
+            gradientTotal.addColorStop(0.6, 'rgba(245, 158, 11, 0.02)');
+            gradientTotal.addColorStop(1, 'rgba(245, 158, 11, 0)');
+
+            pnlChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Cumulative P&L',
+                            data: values,
+                            borderColor: '#F59E0B',
+                            borderWidth: 1.5,
+                            backgroundColor: gradientTotal,
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            pointHoverBackgroundColor: '#F59E0B',
+                            pointHoverBorderColor: '#0B0E14',
+                            pointHoverBorderWidth: 2,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            align: 'end',
+                            labels: {
+                                boxWidth: 12, boxHeight: 2, padding: 6,
+                                font: { family: 'JetBrains Mono', size: 8 },
+                                color: '#566175',
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: '#131820',
+                            borderColor: '#1C2333',
+                            borderWidth: 1,
+                            titleFont: { family: 'Bricolage Grotesque', size: 10, weight: '600' },
+                            bodyFont: { family: 'JetBrains Mono', size: 11, weight: '500' },
+                            titleColor: '#566175',
+                            bodyColor: '#E6EDF3',
+                            padding: { x: 8, y: 6 },
+                            cornerRadius: 4,
+                            displayColors: true,
+                            callbacks: {
+                                label: function(ctx) { return ' ' + ctx.dataset.label + ': $' + ctx.parsed.y.toFixed(2); }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(28, 35, 51, 0.5)', drawTicks: false },
+                            ticks: { font: { family: 'JetBrains Mono', size: 8 }, color: '#2E3848', maxRotation: 0, maxTicksLimit: 4 },
+                            border: { display: false },
+                        },
+                        y: {
+                            grid: { color: 'rgba(28, 35, 51, 0.5)', drawTicks: false },
+                            ticks: { font: { family: 'JetBrains Mono', size: 8 }, color: '#2E3848', callback: function(v) { return '$' + v; } },
+                            border: { display: false },
+                        }
+                    },
+                    layout: { padding: { top: 2 } }
+                }
+            });
+        } else {
+            pnlChart.data.labels = labels;
+            pnlChart.data.datasets[0].data = values;
+            pnlChart.update('none');
+        }
+    }
+    refreshChart();
+    setInterval(refreshChart, 30000);
+
+    /* ── Trades ── */
+    async function loadTrades() {
+        const resp = await fetch('/api/crypto/trades?page=1&per_page=200');
+        var text = await resp.text();
+        if (unchanged('crypto-trades', text)) return;
+        const data = JSON.parse(text);
+        const el = document.getElementById('trades-list');
+        if (!el) return;
+
+        const badge = document.getElementById('badge-trades');
+        if (badge) badge.textContent = data.total + ' trades';
+
+        if (data.total === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
+
+        let html = '';
+        data.items.forEach(function(t) {
+            var strategy = esc(t.strategy || t.symbol || '—');
+            var sideCls = t.side === 'Up' ? 'side-yes' : 'side-no';
+            var amtStr = '$' + (t.amount || 0).toFixed(2);
+            var entryStr = t.entry_price != null ? t.entry_price.toFixed(3) : '\u2014';
+            var btcStr = t.btc_price_at_entry != null
+                ? '$' + t.btc_price_at_entry.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                : '\u2014';
+
+            var pnl = t.pnl != null ? t.pnl : null;
+            var pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '-') + '$' + Math.abs(pnl).toFixed(2) : '\u2014';
+            var pnlCls = pnl !== null ? (pnl >= 0 ? 'pnl-pos' : 'pnl-neg') : 'pnl-na';
+
+            var statusText = t.status || '';
+            var isOpen = statusText === 'dry_run_open' || statusText === 'open';
+            var statusLabel = isOpen ? 'open' : (statusText === 'dry_run_won' || statusText === 'won') ? 'won' : (statusText === 'dry_run_lost' || statusText === 'lost') ? 'lost' : esc(statusText);
+            var statusCls = isOpen ? 'pnl-na' : (statusText === 'dry_run_won' || statusText === 'won') ? 'pnl-pos' : 'pnl-neg';
+
+            html += '<div class="trade-card">' +
+                '<div class="trade-card-question">' + strategy + '</div>' +
+                '<div class="trade-card-row">' +
+                    '<span class="side-badge ' + sideCls + '">' + esc(t.side || '—') + '</span>' +
+                    '<span class="trade-amount">' + amtStr + '</span>' +
+                    '<span class="trade-detail">entry: ' + entryStr + '</span>' +
+                '</div>' +
+                '<div class="trade-card-row">' +
+                    '<span class="trade-detail">BTC: <span style="color:var(--text-dim)">' + btcStr + '</span></span>' +
+                    '<span class="trade-pnl ' + pnlCls + '">' + pnlStr + '</span>' +
+                    '<span class="trade-detail ' + statusCls + '">' + statusLabel + '</span>' +
+                '</div></div>';
+        });
+
+        el.innerHTML = html;
+    }
+    loadTrades();
+    setInterval(loadTrades, 10000);
+
+    /* ── Strategy Comparison ── */
+    async function loadStrategies() {
+        try {
+            const resp = await fetch('/api/crypto/strategies');
+            var text = await resp.text();
+            if (unchanged('crypto-strategies', text)) return;
+            const items = JSON.parse(text);
+            const el = document.getElementById('strategies-list');
+            if (!el) return;
+
+            const badge = document.getElementById('badge-strategies');
+            if (badge) badge.textContent = (items || []).length + ' strategies';
+
+            if (!items || items.length === 0) {
+                el.innerHTML = '<p class="muted">No active strategies.</p>';
+                return;
+            }
+
+            let html = '';
+            items.forEach(function(s) {
+                var wrStr = s.win_rate != null ? (s.win_rate * 100).toFixed(0) + '%' : '\u2014';
+                var pnl = s.total_pnl ?? null;
+                var pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '\u2014';
+                var pnlCls = pnl != null ? (pnl >= 0 ? 'pnl-pos' : 'pnl-neg') : 'pnl-na';
+
+                html += '<div class="trade-card">' +
+                    '<div class="trade-card-question">' + esc(s.strategy || '—') + '</div>' +
+                    '<div class="trade-card-row">' +
+                        '<span class="trade-detail">' + (s.total_trades ?? 0) + ' trades</span>' +
+                        '<span class="trade-detail">Win: ' + wrStr + '</span>' +
+                        '<span class="trade-pnl ' + pnlCls + '">' + pnlStr + '</span>' +
+                    '</div></div>';
+            });
+
+            el.innerHTML = html;
+        } catch { /* silent */ }
+    }
+    loadStrategies();
+    setInterval(loadStrategies, 30000);
+
+    /* ── Incubation ── */
+    async function loadIncubation() {
+        try {
+            const resp = await fetch('/api/crypto/incubation');
+            var text = await resp.text();
+            if (unchanged('crypto-incubation', text)) return;
+            const items = JSON.parse(text);
+            const el = document.getElementById('incubation-list');
+            if (!el) return;
+
+            const badge = document.getElementById('badge-incubation');
+            if (badge) badge.textContent = (items || []).length + ' strategies';
+
+            if (!items || items.length === 0) {
+                el.innerHTML = '<p class="muted">No strategies in incubation.</p>';
+                return;
+            }
+
+            let html = '';
+            items.forEach(function(s) {
+                var pnl = s.total_pnl ?? null;
+                var pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '\u2014';
+                var pnlCls = pnl != null ? (pnl >= 0 ? 'pnl-pos' : 'pnl-neg') : 'pnl-na';
+
+                var st = s.status || '';
+                var statusHtml;
+                if (st === 'incubating')
+                    statusHtml = '<span class="badge badge-dry">INCUBATING</span>';
+                else if (st === 'scaled')
+                    statusHtml = '<span class="badge" style="background:var(--neon-dim);color:var(--neon);border:1px solid rgba(0,230,138,0.2)">SCALED</span>';
+                else if (st === 'retired')
+                    statusHtml = '<span class="badge" style="background:var(--red-dim);color:var(--red);border:1px solid rgba(239,68,68,0.2)">RETIRED</span>';
+                else
+                    statusHtml = '<span class="badge" style="background:var(--surface-raised);color:var(--text-dim);border:1px solid var(--border)">' + esc(st) + '</span>';
+
+                html += '<div class="trade-card">' +
+                    '<div class="trade-card-question">' + esc(s.strategy || '—') + '</div>' +
+                    '<div class="trade-card-row">' +
+                        '<span class="trade-detail">Size: $' + (s.position_size || 0).toFixed(2) + '</span>' +
+                        '<span class="trade-detail">' + (s.total_trades ?? 0) + ' trades</span>' +
+                    '</div>' +
+                    '<div class="trade-card-row">' +
+                        '<span class="trade-pnl ' + pnlCls + '">' + pnlStr + '</span>' +
+                        statusHtml +
+                    '</div></div>';
+            });
+
+            el.innerHTML = html;
+        } catch { /* silent */ }
+    }
+    loadIncubation();
+    setInterval(loadIncubation, 30000);
+
+    /* ── Backtests ── */
+    function btShortName(b) {
+        var name = b.strategy || '—';
+        if (b.params) {
+            try {
+                var p = typeof b.params === 'string' ? JSON.parse(b.params) : b.params;
+                var short;
+                if (b.strategy === 'macd_hist') short = p.macd_fast + '/' + p.macd_slow + '/' + p.macd_signal;
+                else if (b.strategy === 'rsi_bb') short = p.rsi_length + '/' + p.bb_length + '/' + p.bb_std;
+                else if (b.strategy === 'ema_cross') short = p.ema_fast + '/' + p.ema_slow;
+                else if (b.strategy === 'vwap_cap') short = p.vol_spike_min + '/' + p.vwap_revert_pct;
+                else short = Object.values(p).join('/');
+                name += ' (' + short + ')';
+            } catch {}
+        }
+        return name;
+    }
+
+    function calcScore(b) {
+        var exp = b.expectancy ?? 0;
+        var trades = b.total_trades ?? 0;
+        var wr = b.win_rate ?? 0;
+        if (trades === 0 || exp <= 0) return 0;
+        return exp * Math.sqrt(trades) * wr;
+    }
+
+    async function loadBacktests() {
+        try {
+            const resp = await fetch('/api/crypto/backtests');
+            var text = await resp.text();
+            if (unchanged('crypto-backtests', text)) return;
+            var items = JSON.parse(text);
+            const el = document.getElementById('backtests-list');
+            if (!el) return;
+
+            if (!items || !Array.isArray(items)) items = [];
+
+            const badge = document.getElementById('badge-backtests');
+            if (badge) badge.textContent = items.length + ' results';
+
+            if (items.length === 0) {
+                el.innerHTML = '<p class="muted">No backtest results yet.</p>';
+                return;
+            }
+
+            /* Compute scores and rank */
+            items.forEach(function(b) { b._score = calcScore(b); });
+            var sorted = items.slice().sort(function(a, b) { return b._score - a._score; });
+            sorted.forEach(function(b, i) { b._rank = i + 1; });
+
+            let html = '';
+            items.forEach(function(b) {
+                var wrStr = b.win_rate != null ? (b.win_rate * 100).toFixed(0) + '%' : '\u2014';
+                var expStr = b.expectancy != null ? (b.expectancy >= 0 ? '+' : '') + '$' + Math.abs(b.expectancy).toFixed(2) : '\u2014';
+                var expCls = b.expectancy != null ? (b.expectancy >= 0 ? 'pnl-pos' : 'pnl-neg') : 'pnl-na';
+                var pnl = b.pnl ?? b.total_pnl ?? null;
+                var pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '\u2014';
+                var pnlCls = pnl != null ? (pnl >= 0 ? 'pnl-pos' : 'pnl-neg') : 'pnl-na';
+                var score = b._score;
+                var scoreStr = score > 0 ? score.toFixed(2) : '0';
+                var rank = b._rank ?? '\u2014';
+                var rankStyle = rank === 1 ? 'color:var(--amber);font-weight:700' : rank <= 3 ? 'color:var(--text-secondary);font-weight:600' : 'color:var(--text-ghost)';
+
+                html += '<div class="trade-card">' +
+                    '<div class="trade-card-question">' +
+                        '<span style="' + rankStyle + ';margin-right:0.4rem">#' + rank + '</span>' +
+                        esc(btShortName(b)) +
+                    '</div>' +
+                    '<div class="trade-card-row">' +
+                        '<span class="trade-detail">' + (b.total_trades ?? 0) + ' trades</span>' +
+                        '<span class="trade-detail">Win: ' + wrStr + '</span>' +
+                        '<span class="trade-detail ' + expCls + '">Avg: ' + expStr + '</span>' +
+                    '</div>' +
+                    '<div class="trade-card-row">' +
+                        '<span class="trade-pnl ' + pnlCls + '">' + pnlStr + '</span>' +
+                        '<span class="trade-detail" style="color:var(--amber);font-weight:700">Score: ' + scoreStr + '</span>' +
+                    '</div></div>';
+            });
+
+            el.innerHTML = html;
+        } catch { /* silent */ }
+    }
+    loadBacktests();
+    setInterval(loadBacktests, 30000);
+
+    /* ── HTMX: Stats grid ── */
+    htmx.on('htmx:beforeSwap', function(evt) {
+        var key = evt.detail.target.id || evt.detail.target.className;
+        if (unchanged('htmx-' + key, evt.detail.xhr.responseText)) {
+            evt.detail.shouldSwap = false;
+            return;
+        }
+
+        /* Crypto stats grid */
+        if (evt.detail.target.id === 'crypto-stats-grid') {
+            var s;
+            try { s = JSON.parse(evt.detail.xhr.responseText); } catch { return; }
+
+            var totalTrades = s.total_trades ?? 0;
+            var open        = totalTrades - (s.settled ?? 0);
+            var wins        = s.wins ?? 0;
+            var settled     = s.settled ?? 0;
+            var winRate     = s.win_rate ?? 0;
+            var todayPnl    = s.today_pnl ?? 0;
+            var totalPnl    = s.total_pnl ?? 0;
+            var bankroll    = s.bankroll ?? 0;
+
+            var totalPnlColor = totalPnl >= 0 ? 'var(--neon)' : 'var(--red)';
+            var totalPnlSign  = totalPnl >= 0 ? '+' : '';
+            var todayColor    = todayPnl >= 0 ? 'var(--neon)' : 'var(--red)';
+            var todaySign     = todayPnl >= 0 ? '+' : '';
+
+            evt.detail.serverResponse =
+                '<div class="stats-top">' +
+                    '<div class="stat-card"><div class="stat-label">Trades</div><div class="stat-value">' + totalTrades + '</div></div>' +
+                    '<div class="stat-card"><div class="stat-label">Open</div><div class="stat-value pending">' + open + '</div></div>' +
+                    '<div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value">' + (winRate * 100).toFixed(0) + '%</div></div>' +
+                    '<div class="stat-card"><div class="stat-label">Total P&L</div><div class="stat-value" style="color:' + totalPnlColor + '">' + totalPnlSign + '$' + Math.abs(totalPnl).toFixed(2) + '</div></div>' +
+                '</div>' +
+                '<div class="stats-more-toggle" onclick="this.nextElementSibling.classList.toggle(\'open\');this.textContent=this.nextElementSibling.classList.contains(\'open\')?\'&#9650; less stats\':\'&#9660; more stats\'">&#9660; more stats</div>' +
+                '<div class="stats-more">' +
+                    '<div class="stat-card"><div class="stat-label">Today P&L</div><div class="stat-value" style="color:' + todayColor + '">' + todaySign + '$' + Math.abs(todayPnl).toFixed(2) + '</div></div>' +
+                    '<div class="stat-card"><div class="stat-label">Bankroll</div><div class="stat-value" style="color:var(--amber)">$' + bankroll.toFixed(2) + '</div></div>' +
+                '</div>';
+
+            /* Update trades badge */
+            var bt = document.getElementById('badge-trades');
+            if (bt) bt.textContent = totalTrades + ' trades';
+        }
+    });
+
+    /* ── Visibility change: refresh when returning to tab ── */
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) {
+            htmx.trigger(document.getElementById('crypto-stats-grid'), 'load');
+            loadTrades();
+            loadStrategies();
+            loadIncubation();
+            loadBacktests();
+            refreshChart();
+        }
+    });
+    </script>
+</body>
+</html>
