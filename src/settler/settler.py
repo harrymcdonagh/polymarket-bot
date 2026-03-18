@@ -528,9 +528,11 @@ class Settler:
             logger.error(f"Lesson consolidation failed: {e} — retaining previous rules")
 
     async def _maybe_send_daily_summary(self) -> None:
-        """Send daily summary if it hasn't been sent today."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        if self._last_summary_date == today:
+        """Send daily summary once per day, after midnight UK time."""
+        from zoneinfo import ZoneInfo
+        uk_now = datetime.now(ZoneInfo("Europe/London"))
+        today_uk = uk_now.strftime("%Y-%m-%d")
+        if self._last_summary_date == today_uk:
             return
         if not self.notifier.is_enabled:
             return
@@ -569,4 +571,4 @@ class Settler:
             msg += f"\n*Open positions:* {len(open_positions)} | Unrealised {ur_str}"
 
         await self.notifier.send(msg)
-        self._last_summary_date = today
+        self._last_summary_date = today_uk
