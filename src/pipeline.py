@@ -391,9 +391,6 @@ class Pipeline:
                     )
                 continue
 
-        self._set_activity("postmortem", "Analyzing settled trades")
-        await self.run_postmortem()
-
         self._log_cycle_stats(len(markets), len(targets))
 
         self._set_activity("idle")
