@@ -214,7 +214,7 @@ main {
 .activity-bar {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 1rem;
     padding: 0.25rem 0.6rem;
     background: var(--surface);
     border: 1px solid var(--border);

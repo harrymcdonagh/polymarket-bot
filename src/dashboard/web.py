@@ -136,68 +136,97 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
     @app.get("/api/activity", response_class=HTMLResponse)
     async def api_activity():
         from datetime import datetime, timezone
-        a = service.get_activity()
-        stage = a.get("stage", "idle")
-        detail = a.get("detail", "")
-        updated_at = a.get("updated_at")
+        from html import escape
+        import json as _json
 
-        labels = {
-            "idle": "Idle",
-            "checking": "Step 0: Checking Open Trades",
-            "scanning": "Step 1: Scanning Markets",
-            "researching": "Step 2: Researching",
-            "predicting": "Step 3: Predicting",
-            "evaluating": "Step 4: Evaluating Risk",
-            "postmortem": "Step 5: Running Postmortem",
-        }
-        label = labels.get(stage, stage)
-        is_active = stage != "idle"
-        dot_cls = "activity-dot active" if is_active else "activity-dot"
+        now = datetime.now(timezone.utc)
 
-        detail_html = ""
-        if is_active and detail:
-            from html import escape
-            detail_html = f'<span class="activity-detail">{escape(detail)}</span>'
-        elif stage == "idle" and updated_at:
-            # Show time since last activity update
+        def _countdown(next_at_str):
+            """Return countdown string from an ISO timestamp, or None."""
+            if not next_at_str:
+                return None
             try:
-                last = datetime.fromisoformat(updated_at)
-                if last.tzinfo is None:
-                    last = last.replace(tzinfo=timezone.utc)
-                ago = (datetime.now(timezone.utc) - last).total_seconds()
-                if ago < 120:
-                    ago_str = f"{int(ago)}s ago"
-                elif ago < 7200:
-                    ago_str = f"{int(ago / 60)}m ago"
-                else:
-                    ago_str = f"{int(ago / 3600)}h ago"
-                detail_html = f'<span class="activity-detail">Last cycle {ago_str}</span>'
-            except (ValueError, TypeError):
-                pass
-
-        # Next settler countdown
-        settler_html = ""
-        next_settler = a.get("next_settler_at")
-        if next_settler:
-            try:
-                next_dt = datetime.fromisoformat(next_settler)
+                next_dt = datetime.fromisoformat(next_at_str)
                 if next_dt.tzinfo is None:
                     next_dt = next_dt.replace(tzinfo=timezone.utc)
-                remaining = (next_dt - datetime.now(timezone.utc)).total_seconds()
-                if remaining > 0:
-                    mins = int(remaining // 60)
-                    secs = int(remaining % 60)
-                    settler_html = f'<span class="activity-detail" style="margin-left:auto">Next settlement: {mins}m {secs:02d}s</span>'
+                remaining = (next_dt - now).total_seconds()
+                if remaining <= 0:
+                    return None
+                if remaining < 120:
+                    return f"{int(remaining)}s"
+                elif remaining < 7200:
+                    return f"{int(remaining // 60)}m {int(remaining % 60):02d}s"
                 else:
-                    settler_html = '<span class="activity-detail" style="margin-left:auto">Settlement running...</span>'
+                    return f"{int(remaining // 3600)}h {int((remaining % 3600) // 60)}m"
             except (ValueError, TypeError):
-                pass
+                return None
+
+        def _read_json(path):
+            try:
+                with open(path, "r") as f:
+                    return _json.load(f)
+            except (FileNotFoundError, _json.JSONDecodeError):
+                return {}
+
+        def _render_bar(name, stage, detail, countdown):
+            is_active = stage != "idle"
+            dot = "activity-dot active" if is_active else "activity-dot"
+            if is_active and detail:
+                info = f'<span class="activity-detail">{escape(detail)}</span>'
+            elif countdown:
+                info = f'<span class="activity-detail">{countdown}</span>'
+            else:
+                info = ''
+            return (
+                f'<div style="display:flex;align-items:center;gap:0.5rem;flex:1;min-width:0">'
+                f'<div class="{dot}"></div>'
+                f'<span class="activity-label">{escape(name)}</span>'
+                f'{info}'
+                f'</div>'
+            )
+
+        # Bot activity (from pipeline's write_activity)
+        bot_activity = service.get_activity()
+        bot_stage = bot_activity.get("stage", "idle")
+        bot_detail = bot_activity.get("detail", "")
+        bot_next = _read_json("data/bot_activity.json")
+        bot_countdown = _countdown(bot_next.get("next_at"))
+        if bot_stage == "idle" and bot_countdown:
+            bot_detail_str = bot_countdown
+        elif bot_stage == "idle":
+            bot_detail_str = ""
+        else:
+            bot_detail_str = bot_detail
+
+        # Settler activity
+        settler = _read_json("data/settler_activity.json")
+        settler_stage = settler.get("stage", "idle")
+        settler_detail = settler.get("detail", "")
+        settler_countdown = _countdown(settler.get("next_at"))
+        if settler_stage == "idle" and settler_countdown:
+            settler_detail_str = settler_countdown
+        elif settler_stage == "idle":
+            settler_detail_str = ""
+        else:
+            settler_detail_str = settler_detail
+
+        bot_label = {
+            "idle": "Bot: Idle",
+            "checking": "Bot: Checking Trades",
+            "scanning": "Bot: Scanning",
+            "researching": "Bot: Researching",
+            "predicting": "Bot: Predicting",
+            "evaluating": "Bot: Evaluating",
+        }.get(bot_stage, f"Bot: {bot_stage}")
+
+        settler_label = {
+            "idle": "Settler: Idle",
+            "settling": "Settler: Running",
+        }.get(settler_stage, f"Settler: {settler_stage}")
 
         return HTMLResponse(
-            f'<div class="{dot_cls}"></div>'
-            f'<span class="activity-label">{label}</span>'
-            f'{detail_html}'
-            f'{settler_html}'
+            _render_bar(bot_label, bot_stage, bot_detail_str, bot_countdown)
+            + _render_bar(settler_label, settler_stage, settler_detail_str, settler_countdown)
         )
 
     @app.get("/api/logs")

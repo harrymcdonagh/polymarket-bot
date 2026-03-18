@@ -110,38 +110,59 @@ async def _loop(pipeline, dry_run: bool, interval: int):
     if pipeline.notifier.is_enabled:
         await pipeline.notifier.send(pipeline.notifier.format_startup())
 
+    from datetime import datetime, timezone, timedelta
+    import json, os
+    bot_activity_path = "data/bot_activity.json"
+
+    def _write_bot_next(next_at: str | None = None):
+        try:
+            data = {"next_at": next_at, "interval": interval, "updated_at": datetime.now(timezone.utc).isoformat()}
+            os.makedirs(os.path.dirname(bot_activity_path) or ".", exist_ok=True)
+            with open(bot_activity_path, "w") as f:
+                json.dump(data, f)
+        except Exception:
+            pass
+
     while True:
         try:
             await pipeline.run_cycle(dry_run=dry_run)
         except Exception as e:
             logger.error(f"Cycle failed: {e}")
+        next_at = (datetime.now(timezone.utc) + timedelta(seconds=interval)).isoformat()
+        _write_bot_next(next_at)
         logger.info(f"Sleeping {interval}s until next pipeline cycle...")
         await asyncio.sleep(interval)
 
 
 async def _settle_loop(settler, interval: int):
     logger = logging.getLogger("polymarket-bot")
-    from src.activity import write_activity
     from datetime import datetime, timezone, timedelta
+    import json, os
+    path = "data/settler_activity.json"
+
+    def _write_settler_activity(stage: str, detail: str = "", next_at: str | None = None):
+        try:
+            data = {
+                "stage": stage, "detail": detail,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "interval": interval,
+            }
+            if next_at:
+                data["next_at"] = next_at
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            with open(path, "w") as f:
+                json.dump(data, f)
+        except Exception:
+            pass
+
     while True:
+        _write_settler_activity("settling", "Checking markets")
         try:
             await settler.run()
         except Exception as e:
             logger.error(f"Settlement cycle failed: {e}")
         next_at = (datetime.now(timezone.utc) + timedelta(seconds=interval)).isoformat()
-        write_activity("idle", "", "")
-        # Write next settler time to a separate key in activity file
-        import json, os
-        path = "data/activity.json"
-        try:
-            with open(path, "r") as f:
-                data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            data = {}
-        data["next_settler_at"] = next_at
-        data["settler_interval"] = interval
-        with open(path, "w") as f:
-            json.dump(data, f)
+        _write_settler_activity("idle", "", next_at)
         logger.info(f"Sleeping {interval}s until next settlement check...")
         await asyncio.sleep(interval)
 
