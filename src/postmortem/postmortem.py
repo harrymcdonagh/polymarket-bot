@@ -85,12 +85,25 @@ class PostmortemAnalyzer:
                 messages=[{"role": "user", "content": prompt}],
             )
             text = response.content[0].text.strip()
+            # Strip markdown code fences if present
+            text = re.sub(r'^```(?:json)?\s*', '', text)
+            text = re.sub(r'\s*```\s*$', '', text)
+            text = text.strip()
             try:
                 report = json.loads(text)
             except json.JSONDecodeError:
                 json_match = re.search(r'\{.*\}', text, re.DOTALL)
                 if json_match:
-                    report = json.loads(json_match.group())
+                    try:
+                        report = json.loads(json_match.group())
+                    except json.JSONDecodeError:
+                        logger.error(f"Postmortem returned invalid JSON: {text[:200]}")
+                        report = {
+                            "failure_reasons": ["LLM returned invalid JSON"],
+                            "lessons": [f"Raw LLM response: {text[:300]}"],
+                            "system_updates": [],
+                            "category": "unknown",
+                        }
                 else:
                     logger.error(f"Postmortem returned non-JSON: {text[:200]}")
                     report = {
