@@ -36,9 +36,9 @@
                 <div id="trades-table"></div>
             </section>
 
-            <!-- Right column: PnL Chart (top) -->
+            <!-- Right column: Charts (top) -->
             <section class="card chart-card">
-                <h2>PnL History</h2>
+                <h2>Charts <span class="trade-tabs"><button class="trade-tab active" onclick="switchChart('pnl')">PnL</button><button class="trade-tab" onclick="switchChart('winrate')">Win Rate</button><button class="trade-tab" onclick="switchChart('brier')">Brier</button></span></h2>
                 <canvas id="pnl-chart"></canvas>
             </section>
 
@@ -102,118 +102,113 @@
         setTimeout(() => el.remove(), 3000);
     }
 
-    /* ── PnL Chart ── */
-    let pnlChart = null;
+    /* ── Charts (PnL / Win Rate / Brier) ── */
+    let mainChart = null;
+    let _chartMode = 'pnl';
+    let _chartData = [];
+
+    function switchChart(mode) {
+        _chartMode = mode;
+        document.querySelectorAll('.chart-card .trade-tab').forEach(b =>
+            b.classList.toggle('active', b.textContent.toLowerCase().replace(' ', '') === mode)
+        );
+        if (mainChart) { mainChart.destroy(); mainChart = null; }
+        renderChart();
+    }
+
+    const chartConfigs = {
+        pnl: {
+            datasets: data => [
+                { label: 'Total (closed + unrealised)', data: data.map(d => d.total_pnl), borderColor: '#60A5FA', borderWidth: 1.5, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4 },
+                { label: 'Closed PnL', data: data.map(d => d.cumulative_pnl), borderColor: '#00E68A', borderWidth: 1.5, borderDash: [4, 3], fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4 },
+            ],
+            yFormat: v => '$' + v,
+            tooltipFormat: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toFixed(2)}`,
+        },
+        winrate: {
+            datasets: data => [
+                { label: 'Win Rate', data: data.map(d => d.win_rate != null ? (d.win_rate * 100) : null), borderColor: '#F59E0B', borderWidth: 1.5, fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, spanGaps: true },
+                { label: '50% baseline', data: data.map(() => 50), borderColor: '#2E3848', borderWidth: 1, borderDash: [4, 4], fill: false, pointRadius: 0, pointHoverRadius: 0 },
+            ],
+            yFormat: v => v + '%',
+            tooltipFormat: ctx => ctx.dataset.label === '50% baseline' ? null : ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`,
+            yMin: 0, yMax: 100,
+        },
+        brier: {
+            datasets: data => [
+                { label: 'Brier Score', data: data.map(d => d.brier_score), borderColor: '#A78BFA', borderWidth: 1.5, fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, spanGaps: true },
+                { label: '0.25 (random)', data: data.map(() => 0.25), borderColor: '#2E3848', borderWidth: 1, borderDash: [4, 4], fill: false, pointRadius: 0, pointHoverRadius: 0 },
+            ],
+            yFormat: v => v.toFixed(2),
+            tooltipFormat: ctx => ctx.dataset.label.includes('random') ? null : ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(4)}`,
+            yMin: 0, yMax: 0.5,
+        },
+    };
+
+    function renderChart() {
+        const data = _chartData;
+        if (!data.length) return;
+        const cfg = chartConfigs[_chartMode];
+        const labels = data.map(d => d.date);
+        const ctx = document.getElementById('pnl-chart').getContext('2d');
+
+        const datasets = cfg.datasets(data).map(ds => ({
+            ...ds,
+            pointHoverBackgroundColor: ds.borderColor,
+            pointHoverBorderColor: '#0B0E14',
+            pointHoverBorderWidth: 2,
+        }));
+
+        // Add gradient fill to first dataset if PnL mode
+        if (_chartMode === 'pnl') {
+            const grad = ctx.createLinearGradient(0, 0, 0, 180);
+            grad.addColorStop(0, 'rgba(96, 165, 250, 0.12)');
+            grad.addColorStop(0.6, 'rgba(96, 165, 250, 0.02)');
+            grad.addColorStop(1, 'rgba(96, 165, 250, 0)');
+            datasets[0].backgroundColor = grad;
+        }
+
+        mainChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { intersect: false, mode: 'index' },
+                plugins: {
+                    legend: {
+                        display: true, position: 'top', align: 'end',
+                        labels: { boxWidth: 12, boxHeight: 2, padding: 8, font: { family: 'JetBrains Mono', size: 9 }, color: '#566175' }
+                    },
+                    tooltip: {
+                        backgroundColor: '#131820', borderColor: '#1C2333', borderWidth: 1,
+                        titleFont: { family: 'Bricolage Grotesque', size: 10, weight: '600' },
+                        bodyFont: { family: 'JetBrains Mono', size: 11, weight: '500' },
+                        titleColor: '#566175', bodyColor: '#E6EDF3',
+                        padding: { x: 8, y: 6 }, cornerRadius: 4, displayColors: true,
+                        callbacks: { label: cfg.tooltipFormat },
+                        filter: item => cfg.tooltipFormat(item) !== null,
+                    }
+                },
+                scales: {
+                    x: { grid: { color: 'rgba(28, 35, 51, 0.5)', drawTicks: false }, ticks: { font: { family: 'JetBrains Mono', size: 9 }, color: '#2E3848', maxRotation: 0, maxTicksLimit: 6 }, border: { display: false } },
+                    y: {
+                        grid: { color: 'rgba(28, 35, 51, 0.5)', drawTicks: false },
+                        ticks: { font: { family: 'JetBrains Mono', size: 9 }, color: '#2E3848', callback: cfg.yFormat },
+                        border: { display: false },
+                        min: cfg.yMin, max: cfg.yMax,
+                    }
+                },
+                layout: { padding: { top: 2 } }
+            }
+        });
+    }
+
     async function refreshChart() {
         const resp = await fetch('/api/pnl-history');
-        const data = await resp.json();
-        const labels = data.map(d => d.date);
-        const settled = data.map(d => d.cumulative_pnl);
-        const total = data.map(d => d.total_pnl);
-
-        if (!pnlChart) {
-            const ctx = document.getElementById('pnl-chart').getContext('2d');
-            const gradientTotal = ctx.createLinearGradient(0, 0, 0, 180);
-            gradientTotal.addColorStop(0, 'rgba(96, 165, 250, 0.12)');
-            gradientTotal.addColorStop(0.6, 'rgba(96, 165, 250, 0.02)');
-            gradientTotal.addColorStop(1, 'rgba(96, 165, 250, 0)');
-
-            pnlChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels,
-                    datasets: [
-                        {
-                            label: 'Total (settled + unrealised)',
-                            data: total,
-                            borderColor: '#60A5FA',
-                            borderWidth: 1.5,
-                            backgroundColor: gradientTotal,
-                            fill: true,
-                            tension: 0.35,
-                            pointRadius: 0,
-                            pointHoverRadius: 4,
-                            pointHoverBackgroundColor: '#60A5FA',
-                            pointHoverBorderColor: '#0B0E14',
-                            pointHoverBorderWidth: 2,
-                        },
-                        {
-                            label: 'Closed PnL',
-                            data: settled,
-                            borderColor: '#00E68A',
-                            borderWidth: 1.5,
-                            borderDash: [4, 3],
-                            fill: false,
-                            tension: 0.35,
-                            pointRadius: 0,
-                            pointHoverRadius: 4,
-                            pointHoverBackgroundColor: '#00E68A',
-                            pointHoverBorderColor: '#0B0E14',
-                            pointHoverBorderWidth: 2,
-                        },
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { intersect: false, mode: 'index' },
-                    plugins: {
-                        legend: {
-                            display: true,
-                            position: 'top',
-                            align: 'end',
-                            labels: {
-                                boxWidth: 12, boxHeight: 2, padding: 8,
-                                font: { family: 'JetBrains Mono', size: 9 },
-                                color: '#566175',
-                            }
-                        },
-                        tooltip: {
-                            backgroundColor: '#131820',
-                            borderColor: '#1C2333',
-                            borderWidth: 1,
-                            titleFont: { family: 'Bricolage Grotesque', size: 10, weight: '600' },
-                            bodyFont: { family: 'JetBrains Mono', size: 11, weight: '500' },
-                            titleColor: '#566175',
-                            bodyColor: '#E6EDF3',
-                            padding: { x: 8, y: 6 },
-                            cornerRadius: 4,
-                            displayColors: true,
-                            callbacks: {
-                                label: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toFixed(2)}`
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            grid: { color: 'rgba(28, 35, 51, 0.5)', drawTicks: false },
-                            ticks: {
-                                font: { family: 'JetBrains Mono', size: 9 },
-                                color: '#2E3848',
-                                maxRotation: 0,
-                                maxTicksLimit: 6,
-                            },
-                            border: { display: false },
-                        },
-                        y: {
-                            grid: { color: 'rgba(28, 35, 51, 0.5)', drawTicks: false },
-                            ticks: {
-                                font: { family: 'JetBrains Mono', size: 9 },
-                                color: '#2E3848',
-                                callback: v => '$' + v,
-                            },
-                            border: { display: false },
-                        }
-                    },
-                    layout: { padding: { top: 2 } }
-                }
-            });
-        } else {
-            pnlChart.data.labels = labels;
-            pnlChart.data.datasets[0].data = total;
-            pnlChart.data.datasets[1].data = settled;
-            pnlChart.update('none');
-        }
+        _chartData = await resp.json();
+        if (mainChart) { mainChart.destroy(); mainChart = null; }
+        renderChart();
     }
     refreshChart();
     setInterval(refreshChart, 30000);

@@ -167,6 +167,12 @@ class Database:
         snap_cols = {row[1] for row in conn.execute("PRAGMA table_info(market_snapshots)").fetchall()}
         if "token_yes_id" not in snap_cols:
             conn.execute("ALTER TABLE market_snapshots ADD COLUMN token_yes_id TEXT")
+        # Migrate pnl_snapshots table
+        pnl_cols = {row[1] for row in conn.execute("PRAGMA table_info(pnl_snapshots)").fetchall()}
+        if "win_rate" not in pnl_cols:
+            conn.execute("ALTER TABLE pnl_snapshots ADD COLUMN win_rate REAL")
+        if "brier_score" not in pnl_cols:
+            conn.execute("ALTER TABLE pnl_snapshots ADD COLUMN brier_score REAL")
         conn.commit()
 
     def save_trade(self, market_id: str, side: str, amount: float, price: float,
@@ -603,12 +609,13 @@ class Database:
         return row["yes_price"] if row else None
 
     def save_pnl_snapshot(self, settled_pnl: float, unrealised_pnl: float,
-                          total_pnl: float, open_positions: int):
+                          total_pnl: float, open_positions: int,
+                          win_rate: float | None = None, brier_score: float | None = None):
         conn = self._conn()
         now = datetime.now(timezone.utc).isoformat()
         conn.execute(
-            "INSERT INTO pnl_snapshots (settled_pnl, unrealised_pnl, total_pnl, open_positions, snapshot_at) VALUES (?, ?, ?, ?, ?)",
-            (settled_pnl, unrealised_pnl, total_pnl, open_positions, now),
+            "INSERT INTO pnl_snapshots (settled_pnl, unrealised_pnl, total_pnl, open_positions, win_rate, brier_score, snapshot_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (settled_pnl, unrealised_pnl, total_pnl, open_positions, win_rate, brier_score, now),
         )
         conn.commit()
 

@@ -100,10 +100,12 @@ class DashboardService:
             return []
         return [
             {
-                "date": s["snapshot_at"][:16].replace("T", " "),  # "2026-03-17 13:30"
+                "date": s["snapshot_at"][:16].replace("T", " "),
                 "cumulative_pnl": s["settled_pnl"],
                 "unrealised_pnl": s["unrealised_pnl"],
                 "total_pnl": s["total_pnl"],
+                "win_rate": s.get("win_rate"),
+                "brier_score": s.get("brier_score"),
             }
             for s in snapshots
         ]

@@ -160,6 +160,18 @@ class Settler:
             else:
                 return -amount - fee
 
+    def _calc_brier_score(self) -> float | None:
+        """Calculate Brier score across all settled trades."""
+        settled = self.db.get_all_settled_trades(limit=500)
+        scores = []
+        for t in settled:
+            pred_prob = t.get("predicted_prob")
+            outcome = t.get("resolved_outcome")
+            if pred_prob is not None and outcome in ("YES", "NO"):
+                actual = 1.0 if outcome == "YES" else 0.0
+                scores.append((pred_prob - actual) ** 2)
+        return round(sum(scores) / len(scores), 4) if scores else None
+
     async def refresh_open_positions(self) -> None:
         """Refresh current prices for all open positions via bulk Gamma API."""
         trades = self.db.get_open_positions_with_prices()
@@ -220,14 +232,17 @@ class Settler:
         total_unrealised = sum(p["unrealised_pnl"] for p in positions)
         logger.info(f"Refreshed {len(positions)} positions, total unrealised: ${total_unrealised:.2f}")
 
-        # Save PnL snapshot for charting
+        # Save PnL snapshot for charting (with win rate and Brier score)
         stats = self.db.get_trade_stats()
         settled_pnl = stats["total_pnl"]
+        brier = self._calc_brier_score()
         self.db.save_pnl_snapshot(
             settled_pnl=settled_pnl,
             unrealised_pnl=round(total_unrealised, 2),
             total_pnl=round(settled_pnl + total_unrealised, 2),
             open_positions=len(positions),
+            win_rate=stats["win_rate"],
+            brier_score=brier,
         )
 
         # Throttle Telegram updates to once per 6 hours
@@ -308,11 +323,14 @@ class Settler:
                 logger.info(f"Refreshed {len(positions)} positions, total unrealised: ${total_unrealised:.2f}")
                 stats = self.db.get_trade_stats()
                 settled_pnl = stats["total_pnl"]
+                brier = self._calc_brier_score()
                 self.db.save_pnl_snapshot(
                     settled_pnl=settled_pnl,
                     unrealised_pnl=round(total_unrealised, 2),
                     total_pnl=round(settled_pnl + total_unrealised, 2),
                     open_positions=len(positions),
+                    win_rate=stats["win_rate"],
+                    brier_score=brier,
                 )
 
                 now = datetime.now(timezone.utc)
