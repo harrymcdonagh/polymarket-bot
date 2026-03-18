@@ -348,10 +348,27 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
             nonlocal _backtest_running
             _backtest_running = True
             try:
+                # Build env: start from crypto .env, override candle window
+                child_env = os.environ.copy()
+                child_env["CRYPTO_CANDLE_WINDOW"] = str(candles)
+                # Ensure DB_PATH is absolute
+                env_path_file = os.path.join(crypto_dir, ".env")
+                if os.path.exists(env_path_file):
+                    with open(env_path_file, "r") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith("#") and "=" in line:
+                                k, v = line.split("=", 1)
+                                child_env[k] = v
+                    # Make DB_PATH absolute relative to crypto_dir
+                    db_path = child_env.get("DB_PATH", "")
+                    if db_path and not os.path.isabs(db_path):
+                        child_env["DB_PATH"] = os.path.abspath(os.path.join(crypto_dir, db_path))
+                child_env["CRYPTO_CANDLE_WINDOW"] = str(candles)
                 proc = await asyncio.create_subprocess_exec(
                     venv_python, "run.py", "--backtest",
                     cwd=crypto_dir,
-                    env={**os.environ, "CRYPTO_CANDLE_WINDOW": str(candles)},
+                    env=child_env,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
