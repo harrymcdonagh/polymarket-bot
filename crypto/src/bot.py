@@ -77,15 +77,20 @@ class CryptoBot:
         await self._settle_open_trades()
         # 2. Only trade at 5-min boundaries
         if not is_5min_boundary(now):
+            logger.debug(f"Not at 5-min boundary ({now.strftime('%H:%M')}), skipping")
             return
+        logger.info(f"5-min boundary hit at {now.strftime('%H:%M:%S')} UTC")
         # 3. Fetch candles
         symbol = f"{self.settings.CRYPTO_SYMBOL}/USDT"
         df = await self.feed.fetch_candles(symbol, limit=self.settings.CRYPTO_CANDLE_WINDOW)
         if df is None:
+            logger.warning("No candle data returned")
             return
+        logger.info(f"Fetched {len(df)} candles, latest close: ${df['close'].iloc[-1]:.2f}")
         # 4. Compute indicators + signal
         enriched = compute_indicators(df, **self.indicator_params)
         signal, meta = self.strategy.generate_signal(enriched)
+        logger.info(f"Signal: {signal} ({['NO TRADE', 'UP', 'DOWN'][signal] if signal in (0,1,-1) else signal}) | {meta}")
         if signal == 0:
             return
         # 5. Risk check
@@ -99,7 +104,9 @@ class CryptoBot:
         # 6. Find market
         market = await self.scanner.find_active_5min_market(self.settings.CRYPTO_SYMBOL)
         if market is None:
+            logger.warning("No active 5-min market found")
             return
+        logger.info(f"Market found: {market['question'][:60]} | Up={market['up_price']:.2f} Down={market['down_price']:.2f}")
         # 7. Place trade — outcomes are "Up" / "Down"
         side = "Up" if signal == 1 else "Down"
         entry_price = market["up_price"] if side == "Up" else market["down_price"]
