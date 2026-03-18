@@ -1,0 +1,284 @@
+POLYMARKET TRADING BOT — COMPLETE PROJECT OVERVIEW
+====================================================
+
+1. WHAT IT IS
+-------------
+An automated prediction market trading bot for Polymarket. It scans markets,
+researches them using 8+ data sources, predicts outcomes using XGBoost + Claude
+LLM, sizes bets using half-Kelly criterion, and learns from mistakes via
+postmortem analysis. Currently running in dry-run mode (simulated trades,
+real data).
+
+
+2. THE STRATEGY
+---------------
+The core strategy is edge-based: find markets where the bot's predicted
+probability disagrees with the market price by more than 8% (after fees).
+
+  predicted_prob = 0.40 (XGBoost) × 0.4 + 0.60 (Claude LLM) × 0.6
+  market_price   = 0.18
+  edge           = predicted_prob - market_price = 0.22
+  min_edge       = 0.08 (8% after 2% Polymarket fee)
+  → edge > min_edge → TRADE
+
+  If predicted_prob > market_price → buy YES
+  If predicted_prob < market_price → buy NO
+
+Position sizing uses half-Kelly:
+  kelly_fraction = (edge - fee) / (1 - price) / 2
+  capped at MAX_BET_FRACTION (5% of bankroll)
+  scaled by confidence: fraction × min(1.0, confidence / threshold)
+  bet_size = bankroll × adjusted_fraction
+
+The bot won't trade if:
+  - Daily loss exceeds $100
+  - Edge after fees < 8%
+  - Confidence < 0.2 (likely model failure)
+  - Bet size < $1
+
+
+3. THE PIPELINE (5 STAGES)
+--------------------------
+
+STAGE 1: SCANNING
+  Module: src/scanner/scanner.py
+  API: Polymarket Gamma API (gamma-api.polymarket.com)
+
+  - Fetches all active markets (paginated, up to 5000)
+  - Filters: min liquidity $5k, min 24h volume $1k, price 0.05-0.95,
+    max 90 days to resolution
+  - Flags opportunities:
+    • WIDE_SPREAD: bid-ask spread ≥10%
+    • PRICE_SPIKE: price far from 50% with high volume
+    • HIGH_VOLUME: volume >$50k
+    • MISPRICED: prices don't sum to ~1.0
+  - Returns sorted list: flagged markets first, then by volume
+
+STAGE 2: RESEARCH
+  Module: src/research/pipeline.py + src/research/structured_pipeline.py
+
+  8 information sources with configurable weights:
+    NewsAPI (1.0)         — news headlines, 100 req/day limit
+    RSS Major (0.9)       — BBC, CNN, Reuters, AP, Al Jazeera
+    RSS Prediction (0.8)  — Metaculus RSS, prediction market feeds
+    Metaculus (0.9)        — community forecasts from Metaculus API
+    PredictIt (0.85)      — odds from PredictIt market
+    Wikipedia (0.7)       — encyclopedia context
+    Reddit (0.6)          — r/polymarket, r/wallstreetbets, etc.
+    Twitter (0.5)         — live tweets via twscrape
+
+  Structured data sources:
+    CLOB orderbook   — bid-ask spread, depth, imbalance
+    CoinGecko        — crypto prices (if market is crypto-related)
+    FRED             — economic indicators (CPI, unemployment, fed rate)
+
+  Pipeline flow:
+    1. Generate 3 search query variants per market question
+    2. Parallel search across all sources
+    3. Deduplicate results (>85% string similarity)
+    4. Sentiment analysis: VADER baseline + Claude Haiku for ambiguous texts
+    5. Weighted aggregation with 7-day recency decay
+    6. Claude narrative summary (2-3 sentences)
+    7. Alignment score: how well sentiment matches market price
+
+STAGE 3: PREDICTION
+  Module: src/predictor/
+
+  Two models blended:
+    XGBoost (40% weight):
+      - 37 features: market data, sentiment, CLOB microstructure, macro
+      - Trained on historical resolved Polymarket markets
+      - Binary classifier: probability of YES outcome
+
+    Claude LLM Calibrator (60% weight):
+      - Model: claude-sonnet-4-6
+      - Superforecaster reasoning: reference class → prior → evidence
+        update → contrarian check → final estimate
+      - Outputs calibrated probability + 80% confidence interval
+      - Receives recent lessons from postmortem to avoid repeating mistakes
+
+  Output per market:
+    predicted_probability  — blended XGB + LLM
+    edge                   — predicted_prob - market_yes_price
+    confidence             — 0-1 score (penalized if LLM failed)
+    recommended_side       — YES or NO
+
+STAGE 4: RISK EVALUATION
+  Module: src/risk/risk_manager.py
+
+  Hard rejections (no trade):
+    - Daily loss ≥ $MAX_DAILY_LOSS ($100)
+    - After-fee edge < MIN_EDGE_THRESHOLD (8%)
+    - Confidence < 0.2
+    - Bet size < $1
+
+  Position sizing:
+    half-Kelly × confidence scaling × MAX_BET_FRACTION cap (5%)
+    Bet = BANKROLL × adjusted_fraction
+
+STAGE 5: EXECUTION
+  Module: src/risk/executor.py
+
+  Dry-run mode: records trade in DB, no API call
+  Live mode: places order via Polymarket CLOB client (py-clob-client)
+    - BUY order at market price
+    - Tracks order ID for settlement
+
+
+4. SETTLEMENT SYSTEM
+--------------------
+Module: src/settler/settler.py
+Runs as: separate systemd service (polymarket-settler)
+Interval: every 2 hours (SETTLEMENT_INTERVAL)
+
+What it does each cycle:
+  1. Refresh open positions — bulk-fetches live prices from Gamma API,
+     updates current_price in DB, calculates unrealised PnL
+  2. Check resolution — for each open trade, queries Gamma API:
+     if resolved=true → determine outcome from outcomePrices
+  3. Settle trade — updates DB status to dry_run_settled, records
+     resolved_outcome and hypothetical_pnl
+  4. Postmortem — if prediction was wrong AND edge was >5%, runs
+     Claude analysis to learn from the mistake
+  5. Notify — sends Telegram alert with settlement details
+  6. Daily summary — once per day, sends aggregate stats
+
+P&L calculation:
+  fee = amount × 0.02 (Polymarket 2% taker fee)
+  If your side wins: PnL = (amount / entry_price) × $1 - amount - fee
+  If your side loses: PnL = -amount - fee
+
+
+5. POSTMORTEM & LEARNING SYSTEM
+-------------------------------
+Module: src/postmortem/postmortem.py
+
+Triggers: when a settled trade was WRONG and had >5% edge at entry
+
+Process:
+  1. Sends trade details to Claude Sonnet
+  2. Claude role-plays 5 analysts:
+     - Data quality analyst
+     - Model performance analyst
+     - Market structure analyst
+     - Sentiment analyst
+     - Risk management analyst
+  3. Each identifies failure modes
+  4. Extracts actionable lessons with categories:
+     data_quality, model_error, market_structure, sentiment_error,
+     risk_management
+  5. Calculates Brier score: (predicted_prob - actual)²
+  6. Saves lessons to DB → displayed on dashboard
+
+The calibrator receives the last 10 lessons when making new predictions,
+so the system learns from past mistakes.
+
+
+6. DATABASE SCHEMA
+------------------
+SQLite at: data/polymarket.db
+
+Tables:
+  scanned_markets   — raw market snapshots from each scan
+  market_snapshots   — historical price/spread data
+  trades            — all executed trades (dry_run and live)
+  predictions       — all predictions (including rejected ones)
+  postmortems       — post-trade analysis reports
+  lessons           — extracted learnings by category
+  trade_metrics     — prediction accuracy tracking
+  pnl_snapshots     — daily P&L history for charting
+
+
+7. EXTERNAL APIs
+----------------
+  Polymarket Gamma    — market data, resolution checking (free, public)
+  Polymarket CLOB     — order placement (requires wallet key)
+  Polymarket Data     — additional market data
+  Claude API          — LLM calibration, sentiment, postmortem, narrative
+  NewsAPI             — news headlines (100 req/day free tier)
+  Reddit (praw)       — subreddit posts (OAuth credentials)
+  Twitter (twscrape)  — tweets (account-dependent)
+  Metaculus           — community forecasts (API token)
+  PredictIt           — prediction market odds (public)
+  Google Trends       — search interest (unofficial, throttled)
+  CoinGecko           — crypto prices (public)
+  FRED                — US economic indicators (API key)
+  Wikipedia           — encyclopedia lookups (public)
+  Telegram Bot API    — notifications
+
+
+8. CONFIGURATION
+----------------
+All settings in .env file, loaded via Pydantic BaseSettings.
+
+Key knobs:
+  BANKROLL              = 1000    # total capital ($)
+  MAX_BET_FRACTION      = 0.05   # max 5% per trade
+  MIN_EDGE_THRESHOLD    = 0.08   # need 8% edge after fees
+  CONFIDENCE_THRESHOLD  = 0.5    # baseline confidence
+  MAX_DAILY_LOSS        = 100    # stop trading after $100 daily loss
+  MIN_LIQUIDITY         = 5000   # skip illiquid markets
+  MIN_VOLUME_24H        = 1000   # skip low-volume markets
+  LOOP_INTERVAL         = 14400  # pipeline runs every 4 hours
+  SETTLEMENT_INTERVAL   = 7200   # settler checks every 2 hours
+
+LLM models:
+  CALIBRATION_MODEL     = claude-sonnet-4-6
+  SENTIMENT_MODEL       = claude-haiku-4-5-20251001
+  NARRATIVE_MODEL       = claude-haiku-4-5-20251001
+  POSTMORTEM_MODEL      = claude-sonnet-4-6
+
+
+9. DEPLOYMENT
+-------------
+Runs on a DigitalOcean droplet at /opt/polymarket-bot/
+
+Three systemd services:
+  polymarket-bot       — main pipeline loop (currently stopped)
+  polymarket-web       — web dashboard on port 8050
+  polymarket-settler   — settlement monitor
+
+Dashboard:
+  Desktop: responsive grid layout (trades, PnL chart, flagged markets,
+           live feed, lessons)
+  Mobile:  separate template with accordion sections, auto-detected
+           via user-agent or /mobile route
+
+
+10. CURRENT STATUS
+------------------
+  130 trades placed (all dry-run)
+  188 predictions made
+  14,082 market snapshots collected
+  Pipeline stopped — waiting for trades to settle to evaluate performance
+  Settler running — checking resolutions every 2 hours
+
+Cost: ~$0.50 per pipeline cycle (Claude API calls for research,
+calibration, sentiment, narrative)
+
+
+11. FEATURE VECTOR (37 FEATURES)
+--------------------------------
+Market features (7):
+  yes_price, no_price, spread, log_liquidity, log_volume_24h,
+  days_to_resolution, volume_liquidity_ratio
+
+Flag features (3):
+  wide_spread, high_volume, price_spike
+
+Sentiment features (11):
+  positive_ratio, negative_ratio, neutral_ratio, avg_score,
+  sample_size, polarity, price_sentiment_gap, convergence,
+  narrative_alignment, has_research_data
+
+CLOB features (5):
+  bid_ask_spread, buy_depth, sell_depth, imbalance, midpoint_vs_gamma
+
+CoinGecko features (4):
+  crypto_price_usd, crypto_24h_change, crypto_market_cap, crypto_is_relevant
+
+FRED features (4):
+  cpi_latest, fed_funds_rate, unemployment, is_relevant
+
+Derived features (3):
+  implied from other calculations during feature extraction

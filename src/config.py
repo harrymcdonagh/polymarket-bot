@@ -89,6 +89,20 @@ class Settings(BaseSettings):
     # Dashboard security
     DASHBOARD_PASSWORD: str = ""
 
+    # Crypto 5-min module
+    CRYPTO_ENABLED: bool = False
+    CRYPTO_POSITION_SIZE: float = 1.50
+    CRYPTO_MAX_POSITION_SIZE: float = 100.0
+    CRYPTO_STRATEGY: str = "macd_hist"
+    CRYPTO_STRATEGY_PARAMS: str = '{"macd_fast":3,"macd_slow":15,"macd_signal":3}'
+    CRYPTO_SYMBOL: str = "BTC"
+    CRYPTO_TRADE_INTERVAL: int = 300
+    CRYPTO_CANDLE_WINDOW: int = 100
+    CRYPTO_MAX_CONCURRENT_TRADES: int = 1
+    CRYPTO_INCUBATION_MIN_DAYS: int = 14
+    CRYPTO_SCALE_SEQUENCE: str = "1.50,5,10,25,50,100"
+    CRYPTO_MAX_CONSECUTIVE_LOSS_DAYS: int = 3
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @field_validator("BANKROLL")
