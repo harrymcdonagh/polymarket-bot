@@ -193,10 +193,14 @@ class Pipeline:
         features = extract_features(market, sentiment_agg, structured_data=structured_data)
         xgb_prob = self.xgb_model.predict(features)
 
-        # Feed lessons into calibrator for better predictions
-        recent_lessons = [l["lesson"] for l in self.db.get_lessons()[-10:]]
+        # Feed consolidated rules (or fallback to raw lessons) into calibrator
+        rules = self.db.get_latest_rules()
+        if rules:
+            lessons_for_calibrator = rules["ruleset"]
+        else:
+            lessons_for_calibrator = "\n".join(f"- {l['lesson']}" for l in self.db.get_lessons()[-10:])
         prediction = await self.calibrator.calibrate(
-            market, research, xgb_prob, lessons=recent_lessons,
+            market, research, xgb_prob, lessons=lessons_for_calibrator,
         )
 
         # Stash features for saving with prediction

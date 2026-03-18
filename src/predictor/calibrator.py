@@ -65,7 +65,7 @@ class Calibrator:
 
     async def calibrate(
         self, market: ScannedMarket, research: ResearchReport, xgb_probability: float,
-        lessons: list[str] | None = None,
+        lessons: list[str] | str | None = None,
     ) -> Prediction:
         """Combine XGBoost prediction with LLM calibration."""
         sentiment_lines = []
@@ -78,8 +78,11 @@ class Calibrator:
 
         # Format lessons context if available
         if lessons:
-            lessons_text = "\n".join(f"- {l}" for l in lessons[-10:])
-            lessons_context = f"**Previous lessons learned (avoid repeating past mistakes):**\n{lessons_text}"
+            if isinstance(lessons, list):
+                lessons_text = "\n".join(f"- {l}" for l in lessons[-10:])
+            else:
+                lessons_text = lessons  # Already formatted (consolidated ruleset)
+            lessons_context = f"**Trading rules (follow these):**\n{lessons_text}"
         else:
             lessons_context = ""
 
