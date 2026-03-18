@@ -367,7 +367,9 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
                         )
                         service.db._conn().commit()
                 else:
-                    logger.error(f"Backtest failed (rc={proc.returncode}): {stderr.decode()[:500]}")
+                    full_err = stderr.decode() if stderr else ""
+                    full_out = stdout.decode() if stdout else ""
+                    logger.error(f"Backtest failed (rc={proc.returncode})\nSTDOUT: {full_out[-1000:]}\nSTDERR: {full_err[-1000:]}")
             except Exception as e:
                 logger.error(f"Backtest error: {e}")
             finally:
