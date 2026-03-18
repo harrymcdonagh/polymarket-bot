@@ -119,8 +119,8 @@
     const chartConfigs = {
         pnl: {
             datasets: data => [
-                { label: 'Total (closed + unrealised)', data: data.map(d => d.total_pnl), borderColor: '#60A5FA', borderWidth: 1.5, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4 },
-                { label: 'Closed PnL', data: data.map(d => d.cumulative_pnl), borderColor: '#00E68A', borderWidth: 1.5, borderDash: [4, 3], fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4 },
+                { label: 'Closed PnL', data: data.map(d => d.cumulative_pnl), borderColor: '#00E68A', borderWidth: 1.5, fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4 },
+                { label: 'Total (closed + unrealised)', data: data.map(d => d.total_pnl), borderColor: '#F59E0B', borderWidth: 1.5, fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4 },
             ],
             yFormat: v => '$' + v,
             tooltipFormat: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toFixed(2)}`,
@@ -169,13 +169,14 @@
             pointHoverBorderWidth: 2,
         }));
 
-        // Add gradient fill to first dataset if PnL mode
+        // Add gradient fill to Closed PnL line
         if (_chartMode === 'pnl') {
             const grad = ctx.createLinearGradient(0, 0, 0, 180);
-            grad.addColorStop(0, 'rgba(96, 165, 250, 0.12)');
-            grad.addColorStop(0.6, 'rgba(96, 165, 250, 0.02)');
-            grad.addColorStop(1, 'rgba(96, 165, 250, 0)');
+            grad.addColorStop(0, 'rgba(0, 230, 138, 0.12)');
+            grad.addColorStop(0.6, 'rgba(0, 230, 138, 0.02)');
+            grad.addColorStop(1, 'rgba(0, 230, 138, 0)');
             datasets[0].backgroundColor = grad;
+            datasets[0].fill = true;
         }
 
         mainChart = new Chart(ctx, {
