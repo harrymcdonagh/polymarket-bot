@@ -317,37 +317,36 @@ htmx.on('htmx:beforeSwap', function(evt) {
 
     /* ── Trades table ── */
     if (evt.detail.target.id === 'crypto-trades') {
-        let items;
-        try { items = JSON.parse(evt.detail.xhr.responseText); } catch { return; }
+        let data;
+        try { data = JSON.parse(evt.detail.xhr.responseText); } catch { return; }
+        const items = data.items || data;
         if (!items || items.length === 0) {
             evt.detail.serverResponse = '<p class="muted">No trades yet.</p>';
             return;
         }
         let html = `<div class="table-scroll"><table>
             <tr>
-                <th>Time</th><th>Symbol</th><th>Side</th><th>Size</th>
-                <th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Status</th>
+                <th>Time</th><th>Strategy</th><th>Side</th><th>Amount</th>
+                <th>Entry</th><th>P&amp;L</th><th>Status</th>
             </tr>`;
         items.forEach(t => {
             const side    = t.side || '—';
-            const sideCls = side === 'LONG' || side === 'BUY'  ? 'pos'
-                          : side === 'SHORT' || side === 'SELL' ? 'neg' : '';
-            const pnl     = t.pnl ?? t.realized_pnl ?? null;
+            const sideCls = side === 'Up' ? 'pos' : side === 'Down' ? 'neg' : '';
+            const pnl     = t.pnl;
             const pnlHtml = fmtPnl(pnl);
-            const statusPill = t.status === 'open'   ? '<span class="pill pill-green">OPEN</span>'
-                             : t.status === 'closed'  ? '<span class="pill pill-gray">CLOSED</span>'
-                             : t.status === 'pending' ? '<span class="pill pill-yellow">PENDING</span>'
-                             : `<span class="pill pill-gray">${esc(t.status || '—')}</span>`;
-            const entry = t.entry_price != null ? t.entry_price.toFixed(4) : '—';
-            const exit  = t.exit_price  != null ? t.exit_price.toFixed(4)  : '—';
-            const ts    = t.timestamp ? new Date(t.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—';
+            const st = t.status || '';
+            const statusPill = st.includes('won')  ? '<span class="pill pill-green">WON</span>'
+                             : st.includes('lost')  ? '<span class="pill pill-red">LOST</span>'
+                             : st.includes('open')   ? '<span class="pill pill-yellow">OPEN</span>'
+                             : `<span class="pill pill-gray">${esc(st)}</span>`;
+            const entry = t.entry_price != null ? t.entry_price.toFixed(2) : '—';
+            const ts    = t.placed_at ? new Date(t.placed_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—';
             html += `<tr>
                 <td style="color:#566175">${ts}</td>
-                <td style="font-weight:600">${esc(t.symbol || t.market || '—')}</td>
+                <td style="font-weight:500">${esc(t.strategy || '—')}</td>
                 <td class="${sideCls}" style="font-weight:600">${esc(side)}</td>
-                <td>${t.size != null ? t.size : '—'}</td>
+                <td>$${(t.amount || 0).toFixed(2)}</td>
                 <td>${entry}</td>
-                <td>${exit}</td>
                 <td>${pnlHtml}</td>
                 <td>${statusPill}</td>
             </tr>`;
@@ -366,22 +365,14 @@ htmx.on('htmx:beforeSwap', function(evt) {
         }
         let html = '';
         items.forEach(s => {
-            const pnlHtml = fmtPnl(s.pnl ?? s.total_pnl ?? null);
+            const pnlHtml = fmtPnl(s.total_pnl ?? null);
             const wrStr   = s.win_rate != null ? (s.win_rate * 100).toFixed(0) + '%' : '—';
-            const badge   = s.live
-                ? '<span class="pill pill-green">LIVE</span>'
-                : s.paper
-                ? '<span class="pill pill-yellow">PAPER</span>'
-                : '<span class="pill pill-gray">INACTIVE</span>';
             html += `<div class="strategy-row">
                 <div>
-                    <div class="strategy-name">${esc(s.name || s.id || '—')}</div>
-                    <div class="strategy-meta">${wrStr} win rate · ${s.trades ?? 0} trades</div>
+                    <div class="strategy-name">${esc(s.strategy || '—')}</div>
+                    <div class="strategy-meta">${wrStr} win rate · ${s.total_trades ?? 0} trades</div>
                 </div>
-                <div style="display:flex;align-items:center;gap:0.75rem">
-                    <div class="strategy-pnl">${pnlHtml}</div>
-                    ${badge}
-                </div>
+                <div class="strategy-pnl">${pnlHtml}</div>
             </div>`;
         });
         evt.detail.serverResponse = html;
@@ -397,18 +388,19 @@ htmx.on('htmx:beforeSwap', function(evt) {
         }
         let html = '';
         items.forEach(s => {
-            const pct  = s.progress_pct ?? (s.trades_done != null && s.trades_required != null
-                ? Math.round(s.trades_done / s.trades_required * 100) : null);
-            const pctStr = pct != null ? pct + '%' : '—';
-            const pnlHtml = fmtPnl(s.pnl ?? null);
+            const pnlHtml = fmtPnl(s.total_pnl ?? null);
+            const statusPill = s.status === 'incubating' ? '<span class="pill pill-yellow">INCUBATING</span>'
+                             : s.status === 'scaled'     ? '<span class="pill pill-green">SCALED</span>'
+                             : s.status === 'retired'    ? '<span class="pill pill-red">RETIRED</span>'
+                             : `<span class="pill pill-gray">${esc(s.status || '—')}</span>`;
             html += `<div class="incubation-row">
                 <div>
-                    <div style="font-weight:500">${esc(s.name || s.id || '—')}</div>
-                    <div style="color:#566175;font-size:0.7rem">${esc(s.symbol || '')} · ${s.trades_done ?? 0}/${s.trades_required ?? '?'} trades</div>
+                    <div style="font-weight:500">${esc(s.strategy || '—')}</div>
+                    <div style="color:#566175;font-size:0.7rem">$${(s.position_size || 0).toFixed(2)} · ${s.total_trades ?? 0} trades</div>
                 </div>
                 <div style="display:flex;align-items:center;gap:0.75rem">
                     ${pnlHtml}
-                    <span class="pill pill-yellow">${pctStr}</span>
+                    ${statusPill}
                 </div>
             </div>`;
         });
@@ -429,9 +421,9 @@ htmx.on('htmx:beforeSwap', function(evt) {
             const pnlHtml = fmtPnl(b.pnl ?? b.total_pnl ?? null);
             const wrStr   = b.win_rate != null ? (b.win_rate * 100).toFixed(0) + '%' : '—';
             html += `<tr>
-                <td style="font-weight:500">${esc(b.strategy || b.name || '—')}</td>
+                <td style="font-weight:500">${esc(b.strategy || '—')}</td>
                 <td style="color:#566175">${esc(b.symbol || '—')}</td>
-                <td>${b.trades ?? '—'}</td>
+                <td>${b.total_trades ?? '—'}</td>
                 <td>${wrStr}</td>
                 <td>${pnlHtml}</td>
             </tr>`;
