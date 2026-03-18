@@ -67,7 +67,7 @@
                 <div id="crypto-incubation"></div>
             </section>
             <section class="card">
-                <h2>Top Backtests</h2>
+                <h2>Backtests <span class="trade-tabs" id="backtest-filters"></span></h2>
                 <div id="crypto-backtests"></div>
             </section>
         </div>
@@ -381,48 +381,87 @@ async function loadIncubation() {
 loadIncubation();
 setInterval(loadIncubation, 30000);
 
-/* ── Top Backtests ── */
+/* ── Backtests with filter ── */
+let _backtestData = [];
+let _backtestFilter = 'all';
+
+function btShortName(b) {
+    let name = b.strategy || '—';
+    if (b.params) {
+        try {
+            const p = typeof b.params === 'string' ? JSON.parse(b.params) : b.params;
+            let short;
+            if (b.strategy === 'macd_hist') short = `${p.macd_fast}/${p.macd_slow}/${p.macd_signal}`;
+            else if (b.strategy === 'rsi_bb') short = `${p.rsi_length}/${p.bb_length}/${p.bb_std}`;
+            else if (b.strategy === 'ema_cross') short = `${p.ema_fast}/${p.ema_slow}`;
+            else if (b.strategy === 'vwap_cap') short = `${p.vol_spike_min}/${p.vwap_revert_pct}`;
+            else short = Object.values(p).join('/');
+            name += ` (${short})`;
+        } catch {}
+    }
+    return name;
+}
+
+function switchBacktestFilter(filter) {
+    _backtestFilter = filter;
+    document.querySelectorAll('#backtest-filters .trade-tab').forEach(b =>
+        b.classList.toggle('active', b.dataset.filter === filter)
+    );
+    renderBacktests();
+}
+
+function renderBacktests() {
+    const el = document.getElementById('crypto-backtests');
+    if (!el) return;
+    if (!_backtestData.length) {
+        el.innerHTML = '<p class="muted">No backtest results yet.</p>';
+        return;
+    }
+    const items = _backtestFilter === 'all'
+        ? _backtestData
+        : _backtestData.filter(b => b.strategy === _backtestFilter);
+    if (!items.length) {
+        el.innerHTML = '<p class="muted">No results for this strategy.</p>';
+        return;
+    }
+    let html = '<div class="table-scroll"><table><tr><th>Strategy</th><th>Trades</th><th>Win%</th><th>Exp</th><th>P&amp;L</th></tr>';
+    items.forEach(b => {
+        const wrStr  = b.win_rate != null ? (b.win_rate * 100).toFixed(0) + '%' : '—';
+        const expStr = b.expectancy != null ? (b.expectancy >= 0 ? '+' : '') + '$' + Math.abs(b.expectancy).toFixed(2) : '—';
+        const expStyle = b.expectancy != null ? (b.expectancy >= 0 ? 'color:var(--neon)' : 'color:var(--red)') : 'color:var(--text-ghost)';
+        const pnl    = b.pnl ?? b.total_pnl ?? null;
+        const pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '—';
+        const pnlStyle = pnl != null ? (pnl >= 0 ? 'color:var(--neon);font-weight:600' : 'color:var(--red);font-weight:600') : 'color:var(--text-ghost)';
+        html += `<tr>
+            <td style="font-weight:500">${esc(btShortName(b))}</td>
+            <td style="color:var(--text-dim)">${b.total_trades ?? '—'}</td>
+            <td style="color:var(--text-secondary)">${wrStr}</td>
+            <td style="${expStyle};font-weight:600">${expStr}</td>
+            <td style="${pnlStyle}">${pnlStr}</td>
+        </tr>`;
+    });
+    html += '</table></div>';
+    el.innerHTML = html;
+}
+
+function buildBacktestFilters() {
+    const strategies = [...new Set(_backtestData.map(b => b.strategy))];
+    const container = document.getElementById('backtest-filters');
+    if (!container) return;
+    let html = `<button class="trade-tab ${_backtestFilter === 'all' ? 'active' : ''}" data-filter="all" onclick="switchBacktestFilter('all')">All</button>`;
+    strategies.forEach(s => {
+        html += `<button class="trade-tab ${_backtestFilter === s ? 'active' : ''}" data-filter="${esc(s)}" onclick="switchBacktestFilter('${esc(s)}')">${esc(s)}</button>`;
+    });
+    container.innerHTML = html;
+}
+
 async function loadBacktests() {
     try {
         const resp = await fetch('/api/crypto/backtests');
-        const items = await resp.json();
-        const el = document.getElementById('crypto-backtests');
-        if (!el) return;
-        if (!items || items.length === 0) {
-            el.innerHTML = '<p class="muted">No backtest results yet.</p>';
-            return;
-        }
-        let html = '<div class="table-scroll"><table><tr><th>Strategy</th><th>Trades</th><th>Win%</th><th>Exp</th><th>P&amp;L</th></tr>';
-        items.slice(0, 10).forEach(b => {
-            /* Build display name with key params only */
-            let name = b.strategy || '—';
-            if (b.params) {
-                try {
-                    const p = typeof b.params === 'string' ? JSON.parse(b.params) : b.params;
-                    let short;
-                    if (b.strategy === 'macd_hist') short = `${p.macd_fast}/${p.macd_slow}/${p.macd_signal}`;
-                    else if (b.strategy === 'rsi_bb') short = `${p.rsi_length}/${p.bb_length}/${p.bb_std}`;
-                    else if (b.strategy === 'ema_cross') short = `${p.ema_fast}/${p.ema_slow}`;
-                    else if (b.strategy === 'vwap_cap') short = `${p.vol_spike_min}/${p.vwap_revert_pct}`;
-                    else short = Object.values(p).join('/');
-                    name += ` (${short})`;
-                } catch { /* use name without params */ }
-            }
-            const wrStr  = b.win_rate != null ? (b.win_rate * 100).toFixed(0) + '%' : '—';
-            const expStr = b.expectancy != null ? (b.expectancy >= 0 ? '+' : '') + '$' + Math.abs(b.expectancy).toFixed(2) : '—';
-            const pnl    = b.pnl ?? b.total_pnl ?? null;
-            const pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) : '—';
-            const pnlStyle = pnl != null ? (pnl >= 0 ? 'color:var(--neon);font-weight:600' : 'color:var(--red);font-weight:600') : 'color:var(--text-ghost)';
-            html += `<tr>
-                <td style="font-weight:500">${esc(name)}</td>
-                <td style="color:var(--text-dim)">${b.total_trades ?? '—'}</td>
-                <td style="color:var(--text-secondary)">${wrStr}</td>
-                <td style="color:var(--blue)">${expStr}</td>
-                <td style="${pnlStyle}">${pnlStr}</td>
-            </tr>`;
-        });
-        html += '</table></div>';
-        el.innerHTML = html;
+        _backtestData = await resp.json();
+        if (!_backtestData || !Array.isArray(_backtestData)) _backtestData = [];
+        buildBacktestFilters();
+        renderBacktests();
     } catch { /* silent */ }
 }
 loadBacktests();
