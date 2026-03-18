@@ -320,7 +320,8 @@
 
         let html = '';
         data.items.forEach(function(t) {
-            var name = esc(t.question || t.market_id || '');
+            var nameText = esc(t.question || t.market_id || '');
+            var name = t.slug ? '<a href="https://polymarket.com/event/' + esc(t.slug) + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">' + nameText + '</a>' : nameText;
             var sideCls = t.side === 'YES' ? 'side-yes' : 'side-no';
             var isOpen = t.status === 'dry_run' || t.status === 'pending';
 
@@ -432,8 +433,11 @@
                 ? '<span class="edge-value">' + (m.edge * 100).toFixed(1) + '%</span>'
                 : '<span class="edge-na">\u2014</span>';
 
+            var mName = m.slug
+                ? '<a href="https://polymarket.com/event/' + esc(m.slug) + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">' + esc(m.question || '') + '</a>'
+                : esc(m.question || '');
             html += '<div class="market-card">' +
-                '<div class="market-card-question">' + esc(m.question || '') + '</div>' +
+                '<div class="market-card-question">' + mName + '</div>' +
                 '<div class="market-card-row">' +
                     '<span class="yes-price ' + priceCls + '">' + price + '</span>' +
                     resultHtml + edgeHtml +

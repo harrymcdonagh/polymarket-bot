@@ -329,7 +329,8 @@
 
         let html = '<div class="table-scroll"><table class="trades-tbl"><tr>' + headerHtml + '</tr>';
         items.forEach(t => {
-            const name = esc(t.question || t.market_id || '');
+            const nameText = esc(t.question || t.market_id || '');
+            const name = t.slug ? `<a href="https://polymarket.com/event/${esc(t.slug)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${nameText}</a>` : nameText;
             const sideStyle = t.side === 'YES' ? 'color:var(--neon)' : 'color:var(--red)';
             const isOpen = !isSettled(t.status);
             const entryStr = t.price.toFixed(2);
@@ -427,8 +428,11 @@
             const edgeHtml = m.edge != null
                 ? `<span style="color:var(--blue);font-weight:500">${(m.edge * 100).toFixed(1)}%</span>`
                 : '<span style="color:var(--text-ghost)">\u2014</span>';
+            const mName = m.slug
+                ? `<a href="https://polymarket.com/event/${esc(m.slug)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${esc(m.question||'')}</a>`
+                : esc(m.question||'');
             html += `<tr>
-                <td>${esc(m.question||'')}</td>
+                <td>${mName}</td>
                 <td style="color:${priceColor};font-weight:600">${price}</td>
                 <td>${resultHtml}</td>
                 <td>${edgeHtml}</td>

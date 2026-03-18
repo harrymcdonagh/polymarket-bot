@@ -167,6 +167,8 @@ class Database:
         snap_cols = {row[1] for row in conn.execute("PRAGMA table_info(market_snapshots)").fetchall()}
         if "token_yes_id" not in snap_cols:
             conn.execute("ALTER TABLE market_snapshots ADD COLUMN token_yes_id TEXT")
+        if "slug" not in snap_cols:
+            conn.execute("ALTER TABLE market_snapshots ADD COLUMN slug TEXT")
         # Migrate pnl_snapshots table
         pnl_cols = {row[1] for row in conn.execute("PRAGMA table_info(pnl_snapshots)").fetchall()}
         if "win_rate" not in pnl_cols:
@@ -314,14 +316,15 @@ class Database:
                 ",".join(str(f) for f in m.flags) if m.flags else "",
                 m.scanned_at.isoformat() if m.scanned_at else now,
                 getattr(m, "token_yes_id", None),
+                getattr(m, "slug", None),
             )
             for m in markets
         ]
         conn.executemany(
             """INSERT INTO market_snapshots
                (condition_id, question, yes_price, no_price, spread, liquidity,
-                volume_24h, days_to_resolution, flags, snapshot_at, token_yes_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                volume_24h, days_to_resolution, flags, snapshot_at, token_yes_id, slug)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         conn.commit()
@@ -376,10 +379,10 @@ class Database:
         """Get recent trades with market question resolved from snapshots."""
         conn = self._conn()
         rows = conn.execute(
-            """SELECT t.*, ms.question
+            """SELECT t.*, ms.question, ms.slug
                FROM trades t
                LEFT JOIN (
-                   SELECT condition_id, question,
+                   SELECT condition_id, question, slug,
                           ROW_NUMBER() OVER (PARTITION BY condition_id ORDER BY snapshot_at DESC) as rn
                    FROM market_snapshots
                ) ms ON t.market_id = ms.condition_id AND ms.rn = 1
@@ -502,7 +505,7 @@ class Database:
         ).fetchall()
         markets = [dict(r) for r in rows]
 
-        # Enrich with trade data
+        # Enrich with trade data and slug
         for m in markets:
             trade = conn.execute(
                 "SELECT status, amount FROM trades WHERE market_id = ? ORDER BY executed_at DESC LIMIT 1",
@@ -511,6 +514,11 @@ class Database:
             if trade:
                 m["trade_status"] = trade["status"]
                 m["trade_amount"] = trade["amount"]
+            slug_row = conn.execute(
+                "SELECT slug FROM market_snapshots WHERE condition_id = ? AND slug IS NOT NULL ORDER BY snapshot_at DESC LIMIT 1",
+                (m["condition_id"],),
+            ).fetchone()
+            m["slug"] = slug_row["slug"] if slug_row else None
         return markets
 
     def get_traded_market_ids(self) -> set[str]:
