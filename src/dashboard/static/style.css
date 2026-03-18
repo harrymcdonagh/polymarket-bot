@@ -310,10 +310,11 @@ main {
 .grid {
     display: grid;
     grid-template-columns: minmax(0, 60fr) minmax(0, 40fr);
-    grid-template-rows: 1fr 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
     gap: 0.35rem;
     flex: 1;
     min-height: 0;
+    overflow: hidden;
 }
 
 /* ══════════════════════════════════════
@@ -340,7 +341,8 @@ main {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .table-scroll {
