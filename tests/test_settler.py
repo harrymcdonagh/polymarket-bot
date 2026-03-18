@@ -18,6 +18,15 @@ def settler(tmp_db):
     return Settler(db=tmp_db, notifier=notifier, gamma_url="https://gamma-api.polymarket.com")
 
 
+def _make_market_data(condition_id, resolved=False, closed=False, outcome_prices="[\"0.5\",\"0.5\"]"):
+    return {
+        "conditionId": condition_id,
+        "resolved": resolved,
+        "closed": closed,
+        "outcomePrices": outcome_prices,
+    }
+
+
 def test_calc_hypothetical_pnl_win_yes(settler):
     # Bought YES at $0.40 for $10. Market resolved YES.
     # Shares = 10 / 0.40 = 25. Payout = 25 * 1.0 = 25. PnL = 25 - 10 - fee(0.20) = 14.80
@@ -48,26 +57,19 @@ def test_calc_hypothetical_pnl_loss_no(settler):
 
 @pytest.mark.asyncio
 async def test_check_resolution_returns_none_for_active(settler):
-    mock_response = AsyncMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {"closed": False, "resolved": False}
-
-    with patch("httpx.AsyncClient.get", return_value=mock_response):
+    market_data = _make_market_data("condition-123", resolved=False, closed=False)
+    with patch.object(settler, "_fetch_markets_for_ids", new_callable=AsyncMock,
+                      return_value={"condition-123": market_data}):
         result = await settler.check_resolution("condition-123")
         assert result is None
 
 
 @pytest.mark.asyncio
 async def test_check_resolution_returns_outcome(settler):
-    mock_response = AsyncMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "closed": True,
-        "resolved": True,
-        "outcomePrices": "[\"1\",\"0\"]",
-    }
-
-    with patch("httpx.AsyncClient.get", return_value=mock_response):
+    market_data = _make_market_data("condition-123", resolved=True, closed=True,
+                                    outcome_prices="[\"1\",\"0\"]")
+    with patch.object(settler, "_fetch_markets_for_ids", new_callable=AsyncMock,
+                      return_value={"condition-123": market_data}):
         result = await settler.check_resolution("condition-123")
         assert result == "YES"
 
@@ -76,18 +78,15 @@ async def test_check_resolution_returns_outcome(settler):
 async def test_run_settles_resolved_trades(settler, tmp_db):
     tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
 
-    mock_response = AsyncMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "closed": True, "resolved": True, "outcomePrices": "[\"1\",\"0\"]"
-    }
+    market_data = _make_market_data("cond-1", resolved=True, closed=True,
+                                    outcome_prices="[\"1\",\"0\"]")
 
     settler.postmortem = AsyncMock()
     settler.postmortem.analyze_loss = AsyncMock(return_value={})
 
-    with patch.object(settler, "refresh_open_positions", new_callable=AsyncMock):
-        with patch("httpx.AsyncClient.get", return_value=mock_response):
-            await settler.run()
+    with patch.object(settler, "_fetch_markets_for_ids", new_callable=AsyncMock,
+                      return_value={"cond-1": market_data}):
+        await settler.run()
 
     trades = tmp_db.get_unresolved_dry_run_trades()
     assert len(trades) == 0
@@ -103,15 +102,12 @@ async def test_run_saves_trade_metrics(settler, tmp_db):
         approved=True, bet_size=5.0,
     )
 
-    mock_response = AsyncMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "closed": True, "resolved": True, "outcomePrices": "[\"1\",\"0\"]"
-    }
+    market_data = _make_market_data("cond-1", resolved=True, closed=True,
+                                    outcome_prices="[\"1\",\"0\"]")
 
-    with patch.object(settler, "refresh_open_positions", new_callable=AsyncMock):
-        with patch("httpx.AsyncClient.get", return_value=mock_response):
-            await settler.run()
+    with patch.object(settler, "_fetch_markets_for_ids", new_callable=AsyncMock,
+                      return_value={"cond-1": market_data}):
+        await settler.run()
 
     conn = tmp_db._conn()
     metric = conn.execute("SELECT * FROM trade_metrics WHERE trade_id = 1").fetchone()
@@ -132,19 +128,16 @@ async def test_postmortem_skipped_for_low_edge_wrong(settler, tmp_db):
         approved=True, bet_size=5.0,
     )
 
-    mock_response = AsyncMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "closed": True, "resolved": True, "outcomePrices": "[\"0\",\"1\"]"
-    }
+    market_data = _make_market_data("cond-1", resolved=True, closed=True,
+                                    outcome_prices="[\"0\",\"1\"]")
 
     mock_postmortem = AsyncMock()
     mock_postmortem.analyze_loss = AsyncMock(return_value={})
     settler.postmortem = mock_postmortem
 
-    with patch.object(settler, "refresh_open_positions", new_callable=AsyncMock):
-        with patch("httpx.AsyncClient.get", return_value=mock_response):
-            await settler.run()
+    with patch.object(settler, "_fetch_markets_for_ids", new_callable=AsyncMock,
+                      return_value={"cond-1": market_data}):
+        await settler.run()
 
     mock_postmortem.analyze_loss.assert_not_called()
 
@@ -160,19 +153,16 @@ async def test_postmortem_runs_for_high_edge_wrong(settler, tmp_db):
         approved=True, bet_size=5.0,
     )
 
-    mock_response = AsyncMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "closed": True, "resolved": True, "outcomePrices": "[\"0\",\"1\"]"
-    }
+    market_data = _make_market_data("cond-1", resolved=True, closed=True,
+                                    outcome_prices="[\"0\",\"1\"]")
 
     mock_postmortem = AsyncMock()
     mock_postmortem.analyze_loss = AsyncMock(return_value={})
     settler.postmortem = mock_postmortem
 
-    with patch.object(settler, "refresh_open_positions", new_callable=AsyncMock):
-        with patch("httpx.AsyncClient.get", return_value=mock_response):
-            await settler.run()
+    with patch.object(settler, "_fetch_markets_for_ids", new_callable=AsyncMock,
+                      return_value={"cond-1": market_data}):
+        await settler.run()
 
     mock_postmortem.analyze_loss.assert_called_once()
 
@@ -231,19 +221,19 @@ async def test_refresh_updates_both_trades_same_market(settler, tmp_db):
 
 
 @pytest.mark.asyncio
-async def test_run_calls_refresh_before_settlement(settler, tmp_db):
-    """Verify run() calls refresh_open_positions before checking resolutions."""
-    call_order = []
+async def test_run_does_single_bulk_fetch(settler, tmp_db):
+    """Verify run() does one bulk fetch for both price refresh and settlement."""
+    tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
 
-    async def mock_refresh():
-        call_order.append("refresh")
+    market_data = _make_market_data("cond-1", resolved=False, closed=False,
+                                    outcome_prices="[\"0.6\",\"0.4\"]")
 
-    with patch.object(settler, "refresh_open_positions", side_effect=mock_refresh):
-        tmp_db.save_trade("cond-1", "YES", 10.0, 0.5, status="dry_run", predicted_prob=0.7)
-        mock_response = AsyncMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"resolved": False}
-        with patch("httpx.AsyncClient.get", return_value=mock_response):
-            await settler.run()
+    with patch.object(settler, "_fetch_markets_for_ids", new_callable=AsyncMock,
+                      return_value={"cond-1": market_data}) as mock_fetch:
+        await settler.run()
 
-    assert call_order[0] == "refresh"
+    # Should be called exactly once (combined price + settlement fetch)
+    mock_fetch.assert_called_once()
+    # Trade should NOT be settled (not resolved)
+    trades = tmp_db.get_unresolved_dry_run_trades()
+    assert len(trades) == 1

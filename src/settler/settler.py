@@ -24,52 +24,103 @@ class Settler:
         self._last_summary_date: str | None = None
         self._last_positions_update: str | None = None
 
-    async def check_resolution(self, condition_id: str) -> str | None:
-        """Check if a market has resolved. Returns 'YES'/'NO' or None if still active."""
+    async def _fetch_markets_for_ids(self, condition_ids: set[str]) -> dict[str, dict]:
+        """Fetch market data for specific conditionIds by paginating active+closed markets.
+
+        The Gamma API ignores the conditionId query param, so we must paginate
+        through all markets and match locally by conditionId.
+        Returns a dict mapping conditionId -> market data.
+        """
+        found: dict[str, dict] = {}
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                # Query by conditionId parameter — the URL path expects Gamma's
-                # internal ID, not the on-chain conditionId
-                resp = await client.get(
-                    f"{self.gamma_url}/markets",
-                    params={"conditionId": condition_id},
-                )
-                if resp.status_code != 200:
-                    logger.warning(f"Gamma API returned {resp.status_code} for {condition_id}")
-                    return None
-                # Support both sync (real httpx) and async (test mocks) .json()
-                raw = resp.json()
-                results = (await raw) if hasattr(raw, "__await__") else raw
-                if isinstance(results, list):
-                    if not results:
-                        logger.debug(f"No market found for conditionId {condition_id}")
-                        return None
-                    data = results[0]
-                else:
-                    data = results
+            async with httpx.AsyncClient(timeout=30) as client:
+                # First pass: active open markets
+                offset = 0
+                while len(found) < len(condition_ids):
+                    resp = await client.get(
+                        f"{self.gamma_url}/markets",
+                        params={"active": "true", "closed": "false",
+                                "limit": 100, "offset": offset},
+                    )
+                    if resp.status_code != 200:
+                        break
+                    raw = resp.json()
+                    markets = (await raw) if hasattr(raw, "__await__") else raw
+                    if not markets:
+                        break
+                    for m in markets:
+                        cid = m.get("conditionId") or m.get("condition_id", "")
+                        if cid in condition_ids:
+                            found[cid] = m
+                    if len(markets) < 100:
+                        break
+                    offset += 100
 
-            resolved = data.get("resolved", False)
-            closed = data.get("closed", False)
-            if not resolved:
-                if closed:
-                    logger.info(f"Market {condition_id[:16]}… is closed but not yet resolved")
-                return None
-
-            prices_str = data.get("outcomePrices", "[]")
-            prices = json.loads(prices_str)
-            if len(prices) >= 2:
-                yes_price = float(prices[0])
-                if yes_price > 0.5:
-                    return "YES"
-                elif yes_price < 0.5:
-                    return "NO"
-                else:
-                    logger.warning(f"Market {condition_id} resolved with ambiguous 0.5 price, skipping")
-                    return None
-            return None
+                # Second pass: closed markets (for resolved/settling markets)
+                if len(found) < len(condition_ids):
+                    missing = condition_ids - set(found.keys())
+                    offset = 0
+                    while missing:
+                        resp = await client.get(
+                            f"{self.gamma_url}/markets",
+                            params={"closed": "true", "limit": 100, "offset": offset},
+                        )
+                        if resp.status_code != 200:
+                            break
+                        raw = resp.json()
+                        markets = (await raw) if hasattr(raw, "__await__") else raw
+                        if not markets:
+                            break
+                        for m in markets:
+                            cid = m.get("conditionId") or m.get("condition_id", "")
+                            if cid in missing:
+                                found[cid] = m
+                                missing.discard(cid)
+                        if not missing or len(markets) < 100:
+                            break
+                        offset += 100
         except Exception as e:
-            logger.warning(f"Resolution check failed for {condition_id}: {e}")
+            logger.warning(f"Market fetch error: {e}")
+        return found
+
+    def _parse_resolution(self, data: dict) -> str | None:
+        """Check if a market has resolved. Returns 'YES'/'NO' or None."""
+        resolved = data.get("resolved", False)
+        closed = data.get("closed", False)
+        if not resolved:
+            if closed:
+                cid = (data.get("conditionId") or "")[:16]
+                logger.info(f"Market {cid}… is closed but not yet resolved")
             return None
+
+        prices_str = data.get("outcomePrices", "[]")
+        try:
+            prices = json.loads(prices_str)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if len(prices) >= 2:
+            yes_price = float(prices[0])
+            if yes_price > 0.5:
+                return "YES"
+            elif yes_price < 0.5:
+                return "NO"
+            else:
+                logger.warning(f"Market resolved with ambiguous 0.5 price, skipping")
+        return None
+
+    async def check_resolution(self, condition_id: str) -> str | None:
+        """Check if a single market has resolved. Returns 'YES'/'NO' or None.
+
+        Note: The Gamma API ignores the conditionId query param, so this
+        falls back to paginated search. Prefer using _fetch_markets_for_ids
+        for bulk lookups.
+        """
+        markets = await self._fetch_markets_for_ids({condition_id})
+        data = markets.get(condition_id)
+        if data is None:
+            logger.debug(f"No market found for conditionId {condition_id}")
+            return None
+        return self._parse_resolution(data)
 
     def calc_hypothetical_pnl(self, side: str, amount: float, price: float,
                               outcome: str, fee_rate: float = 0.02) -> float:
@@ -95,38 +146,6 @@ class Settler:
             else:
                 return -amount - fee
 
-    async def _fetch_bulk_prices(self, condition_ids: set[str]) -> dict[str, float]:
-        """Fetch current prices for open positions by querying each conditionId directly."""
-        prices: dict[str, float] = {}
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                for cid in condition_ids:
-                    try:
-                        resp = await client.get(
-                            f"{self.gamma_url}/markets",
-                            params={"conditionId": cid},
-                        )
-                        if resp.status_code != 200:
-                            continue
-                        raw = resp.json()
-                        results = (await raw) if hasattr(raw, "__await__") else raw
-                        if isinstance(results, list):
-                            if not results:
-                                continue
-                            data = results[0]
-                        else:
-                            data = results
-                        outcome = json.loads(data.get("outcomePrices", "[]"))
-                        if len(outcome) >= 2:
-                            p = float(outcome[0])
-                            if 0 < p < 1:
-                                prices[cid] = p
-                    except Exception:
-                        continue
-        except Exception as e:
-            logger.warning(f"Bulk price fetch error: {e}")
-        return prices
-
     async def refresh_open_positions(self) -> None:
         """Refresh current prices for all open positions via bulk Gamma API."""
         trades = self.db.get_open_positions_with_prices()
@@ -135,8 +154,20 @@ class Settler:
 
         market_ids = {t["market_id"] for t in trades}
 
-        # Fetch live prices from Gamma bulk API
-        prices = await self._fetch_bulk_prices(market_ids)
+        # Fetch live market data (paginated scan)
+        market_data = await self._fetch_markets_for_ids(market_ids)
+
+        # Extract prices from market data
+        prices: dict[str, float] = {}
+        for cid, data in market_data.items():
+            try:
+                outcome = json.loads(data.get("outcomePrices", "[]"))
+                if len(outcome) >= 2:
+                    p = float(outcome[0])
+                    if 0 < p < 1:
+                        prices[cid] = p
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
 
         # Fill gaps from DB snapshots (for markets not in current active listing)
         for market_id in market_ids:
@@ -200,16 +231,96 @@ class Settler:
 
     async def run(self) -> None:
         """Check all unresolved dry-run trades and settle any that have resolved."""
-        await self.refresh_open_positions()
         trades = self.db.get_unresolved_dry_run_trades()
         if not trades:
             logger.info("No unresolved dry-run trades to check")
+            # Still refresh positions for price updates
+            await self.refresh_open_positions()
             return
 
+        # Fetch all market data in one bulk scan (covers both price refresh + resolution)
+        all_market_ids = {t["market_id"] for t in trades}
+        open_positions = self.db.get_open_positions_with_prices()
+        all_market_ids.update(t["market_id"] for t in open_positions)
+
+        logger.info(f"Fetching market data for {len(all_market_ids)} markets")
+        market_data = await self._fetch_markets_for_ids(all_market_ids)
+        logger.info(f"Found data for {len(market_data)}/{len(all_market_ids)} markets")
+
+        # --- Price refresh using fetched data ---
+        prices: dict[str, float] = {}
+        for cid, data in market_data.items():
+            try:
+                outcome = json.loads(data.get("outcomePrices", "[]"))
+                if len(outcome) >= 2:
+                    p = float(outcome[0])
+                    if 0 < p < 1:
+                        prices[cid] = p
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+
+        if open_positions:
+            position_ids = {t["market_id"] for t in open_positions}
+            for market_id in position_ids:
+                if market_id not in prices:
+                    snap_price = self.db.get_latest_snapshot_price(market_id)
+                    if snap_price is not None and 0 < snap_price < 1:
+                        prices[market_id] = snap_price
+
+            logger.info(f"Got prices for {len(prices)}/{len(position_ids)} markets")
+            positions = []
+            for trade in open_positions:
+                current_price = prices.get(trade["market_id"])
+                if current_price is None:
+                    continue
+                self.db.update_trade_price(trade["id"], current_price)
+                pnl = calc_unrealised_pnl(
+                    side=trade["side"],
+                    amount=trade["amount"],
+                    entry_price=trade["price"],
+                    current_yes_price=current_price,
+                )
+                question = trade.get("question") or trade["market_id"]
+                positions.append({
+                    "question": question,
+                    "side": trade["side"],
+                    "price": trade["price"],
+                    "current_price": current_price,
+                    "unrealised_pnl": pnl,
+                })
+
+            if positions:
+                total_unrealised = sum(p["unrealised_pnl"] for p in positions)
+                logger.info(f"Refreshed {len(positions)} positions, total unrealised: ${total_unrealised:.2f}")
+                stats = self.db.get_trade_stats()
+                settled_pnl = stats["total_pnl"]
+                self.db.save_pnl_snapshot(
+                    settled_pnl=settled_pnl,
+                    unrealised_pnl=round(total_unrealised, 2),
+                    total_pnl=round(settled_pnl + total_unrealised, 2),
+                    open_positions=len(positions),
+                )
+
+                now = datetime.now(timezone.utc)
+                should_send = True
+                if self._last_positions_update:
+                    last = datetime.fromisoformat(self._last_positions_update)
+                    if (now - last).total_seconds() < 6 * 3600:
+                        should_send = False
+                if should_send and self.notifier.is_enabled:
+                    msg = self.notifier.format_positions_update(positions, total_unrealised)
+                    await self.notifier.send(msg)
+                    self._last_positions_update = now.isoformat()
+
+        # --- Settlement using fetched data ---
         logger.info(f"Checking {len(trades)} unresolved dry-run trades")
 
         for trade in trades:
-            outcome = await self.check_resolution(trade["market_id"])
+            data = market_data.get(trade["market_id"])
+            if data is None:
+                continue
+
+            outcome = self._parse_resolution(data)
             if outcome is None:
                 continue
 
