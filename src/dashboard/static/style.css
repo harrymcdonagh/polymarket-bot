@@ -262,7 +262,7 @@ main {
 
 .stats-row {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    grid-template-columns: repeat(8, 1fr);
     gap: 0.35rem;
     flex-shrink: 0;
 }
@@ -682,6 +682,7 @@ dialog .btn {
 .stat-card:nth-child(5) { animation-delay: 0.10s; }
 .stat-card:nth-child(6) { animation-delay: 0.12s; }
 .stat-card:nth-child(7) { animation-delay: 0.14s; }
+.stat-card:nth-child(8) { animation-delay: 0.16s; }
 
 .card { animation: fade-in 0.3s var(--ease) both; }
 .grid .card:nth-child(1) { animation-delay: 0.06s; }
