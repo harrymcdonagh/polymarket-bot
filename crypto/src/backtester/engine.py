@@ -1,6 +1,10 @@
+import inspect
 import numpy as np
 import pandas as pd
 from src.indicators import compute_indicators
+
+# Only pass these keys to compute_indicators — everything else is strategy-specific
+_INDICATOR_PARAMS = set(inspect.signature(compute_indicators).parameters.keys()) - {"df"}
 
 
 class BacktestEngine:
@@ -23,7 +27,8 @@ class BacktestEngine:
         max_drawdown, profit_factor, sharpe
         """
         params = indicator_params or {}
-        enriched = compute_indicators(df, **params)
+        indicator_args = {k: v for k, v in params.items() if k in _INDICATOR_PARAMS}
+        enriched = compute_indicators(df, **indicator_args)
 
         trades = strategy.backtest_signal(enriched)
 
