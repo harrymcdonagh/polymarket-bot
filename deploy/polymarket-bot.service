@@ -8,7 +8,7 @@ User=polymarket
 Group=polymarket
 WorkingDirectory=/opt/polymarket-bot
 EnvironmentFile=/opt/polymarket-bot/.env
-ExecStart=/opt/polymarket-bot/venv/bin/python run.py --loop --interval=3600
+ExecStart=/opt/polymarket-bot/venv/bin/python run.py --loop --interval=86400
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
