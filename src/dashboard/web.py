@@ -305,5 +305,123 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
                     r[k] = None
         return results
 
+    # ── Crypto bot control endpoints ──
+
+    _backtest_running = False
+
+    @app.post("/api/crypto/run-backtest")
+    async def api_crypto_run_backtest(request: Request):
+        nonlocal _backtest_running
+        if _backtest_running:
+            return JSONResponse({"status": "already_running"}, status_code=409)
+        body = await request.json()
+        candles = int(body.get("candles", 5000))
+        candles = max(100, min(candles, 10000))
+
+        import subprocess, os
+        crypto_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "crypto")
+        # Try crypto venv first, fall back to system python
+        venv_python = os.path.join(crypto_dir, "venv", "bin", "python")
+        if not os.path.exists(venv_python):
+            venv_python = os.path.join(crypto_dir, "venv", "Scripts", "python.exe")
+        if not os.path.exists(venv_python):
+            return JSONResponse({"status": "error", "message": "Crypto venv not found"}, status_code=500)
+
+        # Update candle count in .env
+        env_path = os.path.join(crypto_dir, ".env")
+        if os.path.exists(env_path):
+            with open(env_path, "r") as f:
+                lines = f.readlines()
+            with open(env_path, "w") as f:
+                for line in lines:
+                    if line.startswith("CRYPTO_CANDLE_WINDOW="):
+                        f.write(f"CRYPTO_CANDLE_WINDOW={candles}\n")
+                    else:
+                        f.write(line)
+
+        async def run_backtest():
+            nonlocal _backtest_running
+            _backtest_running = True
+            try:
+                # Clear old backtests first
+                service.db._conn().execute("DELETE FROM crypto_backtests")
+                service.db._conn().commit()
+                proc = await asyncio.create_subprocess_exec(
+                    venv_python, "run.py", "--backtest",
+                    cwd=crypto_dir,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await proc.wait()
+            finally:
+                _backtest_running = False
+
+        asyncio.create_task(run_backtest())
+        return {"status": "started", "candles": candles}
+
+    @app.get("/api/crypto/backtest-status")
+    async def api_crypto_backtest_status():
+        return {"running": _backtest_running}
+
+    @app.get("/api/crypto/current-config")
+    async def api_crypto_current_config():
+        """Read current strategy from crypto .env file."""
+        import os
+        crypto_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "crypto")
+        env_path = os.path.join(crypto_dir, ".env")
+        config = {"strategy": "macd_hist", "params": "{}", "candles": 5000}
+        if os.path.exists(env_path):
+            with open(env_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("CRYPTO_STRATEGY="):
+                        config["strategy"] = line.split("=", 1)[1]
+                    elif line.startswith("CRYPTO_STRATEGY_PARAMS="):
+                        config["params"] = line.split("=", 1)[1]
+                    elif line.startswith("CRYPTO_CANDLE_WINDOW="):
+                        config["candles"] = int(line.split("=", 1)[1])
+        return config
+
+    @app.post("/api/crypto/set-strategy")
+    async def api_crypto_set_strategy(request: Request):
+        """Update strategy in crypto .env and restart the bot service."""
+        body = await request.json()
+        strategy = body.get("strategy", "")
+        params = body.get("params", "")
+        if not strategy or not params:
+            return JSONResponse({"status": "error", "message": "strategy and params required"}, status_code=400)
+
+        import os
+        crypto_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "crypto")
+        env_path = os.path.join(crypto_dir, ".env")
+        if not os.path.exists(env_path):
+            return JSONResponse({"status": "error", "message": ".env not found"}, status_code=500)
+
+        with open(env_path, "r") as f:
+            lines = f.readlines()
+        with open(env_path, "w") as f:
+            for line in lines:
+                if line.startswith("CRYPTO_STRATEGY="):
+                    f.write(f"CRYPTO_STRATEGY={strategy}\n")
+                elif line.startswith("CRYPTO_STRATEGY_PARAMS="):
+                    f.write(f"CRYPTO_STRATEGY_PARAMS={params}\n")
+                else:
+                    f.write(line)
+
+        # Try to restart the bot service
+        restarted = False
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", "restart", "polymarket-crypto-bot",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=10)
+            restarted = proc.returncode == 0
+        except Exception:
+            pass
+
+        return {"status": "ok", "strategy": strategy, "params": params, "restarted": restarted}
+
     app.state.service = service
     return app
