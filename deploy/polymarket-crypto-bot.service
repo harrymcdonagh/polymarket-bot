@@ -1,0 +1,18 @@
+[Unit]
+Description=Polymarket Crypto 5-Min Bot
+After=network.target
+
+[Service]
+Type=simple
+User=polymarket
+Group=polymarket
+WorkingDirectory=/opt/polymarket-bot/crypto
+EnvironmentFile=/opt/polymarket-bot/crypto/.env
+ExecStart=/opt/polymarket-bot/crypto/venv/bin/python run.py --bot
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

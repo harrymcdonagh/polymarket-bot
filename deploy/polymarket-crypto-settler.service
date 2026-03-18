@@ -1,0 +1,18 @@
+[Unit]
+Description=Polymarket Crypto Settler
+After=network.target
+
+[Service]
+Type=simple
+User=polymarket
+Group=polymarket
+WorkingDirectory=/opt/polymarket-bot/crypto
+EnvironmentFile=/opt/polymarket-bot/crypto/.env
+ExecStart=/opt/polymarket-bot/crypto/venv/bin/python run.py --settle
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
