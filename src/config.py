@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     EXIT_STALE_DAYS: int = 30
     EXIT_STALE_EDGE_THRESHOLD: float = 0.02
 
+    # Trade limits
+    MAX_DAILY_TRADES: int = 15
+
     RESEARCH_TIMEOUT: int = 30
     RESEARCH_CONCURRENCY: int = 5  # max markets researched in parallel
 

@@ -303,6 +303,7 @@
                 const p = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
                 return p !== null ? p : -999;
             }
+            case 'time': return t.executed_at || '';
             default: return 0;
         }
     }
@@ -321,10 +322,10 @@
             });
         }
 
-        const cols = ['market','side','cost','entry','now','value','pnl'];
+        const cols = ['market','side','cost','entry','now','value','pnl','time'];
         const labels = _tradeTab === 'settled'
-            ? ['Market','Side','Cost','Entry','Outcome','Result','PnL']
-            : ['Market','Side','Cost','Entry','Now','Value','PnL'];
+            ? ['Market','Side','Cost','Entry','Outcome','Result','PnL','Date']
+            : ['Market','Side','Cost','Entry','Now','Value','PnL','Date'];
         let headerHtml = cols.map((c,i) => {
             let arrow = '';
             if (_tradeSort.col === c) arrow = _tradeSort.asc ? ' \u25B2' : ' \u25BC';
@@ -390,6 +391,9 @@
             const pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '-') + '$' + Math.abs(pnl).toFixed(2) + pnlLabel : '\u2014';
             const pnlStyle = pnl !== null ? (pnl >= 0 ? 'color:var(--neon)' : 'color:var(--red)') : 'color:var(--text-ghost)';
 
+            // Format timestamp
+            const timeStr = t.executed_at ? t.executed_at.slice(5,16).replace('T',' ') : '\u2014';
+
             html += `<tr>
                 <td class="td-market">${name}</td>
                 <td style="${sideStyle};font-weight:600">${esc(t.side)}</td>
@@ -398,6 +402,7 @@
                 <td style="${col5Style};font-weight:600">${col5Str}</td>
                 <td style="${col6Style};font-weight:600">${col6Str}</td>
                 <td style="${pnlStyle};font-weight:600">${pnlStr}</td>
+                <td style="color:var(--text-ghost);font-size:0.75rem;white-space:nowrap">${timeStr}</td>
             </tr>`;
         });
         html += '</table></div>';

@@ -392,6 +392,16 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_daily_trade_count(self) -> int:
+        """Count trades placed today."""
+        conn = self._conn()
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        row = conn.execute(
+            "SELECT COUNT(*) as n FROM trades WHERE executed_at LIKE ?",
+            (f"{today}%",),
+        ).fetchone()
+        return row["n"]
+
     def get_daily_pnl(self) -> float:
         conn = self._conn()
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")

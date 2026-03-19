@@ -378,6 +378,13 @@ class Pipeline:
                         f"conf={prediction.confidence:.2f} | reason: {decision.rejection_reason}"
                     )
 
+                # Check daily trade limit before placing
+                if decision.approved and self.settings.MAX_DAILY_TRADES > 0:
+                    daily_count = self.db.get_daily_trade_count()
+                    if daily_count >= self.settings.MAX_DAILY_TRADES:
+                        logger.info(f"[DAILY LIMIT] {daily_count}/{self.settings.MAX_DAILY_TRADES} trades today — skipping")
+                        continue
+
                 if decision.approved and not dry_run:
                     if self.executor is None:
                         logger.error("Trade approved but executor not initialized — missing private key")
