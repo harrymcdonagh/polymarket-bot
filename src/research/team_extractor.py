@@ -7,13 +7,15 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-BALLDONTLIE_BASE = "https://api.balldontlie.io/v1"
+BALLDONTLIE_BASE = "https://api.balldontlie.io"
 
 EXTRACTION_PROMPT = """Extract the sport and two team names from this prediction market question.
-Return JSON: {"sport": "<nba|nhl|nfl|mlb>", "team_a": "<full team name for YES side>", "team_b": "<full team name>"}
-Return null if this is not a team sports matchup (e.g., crypto, politics, tennis, esports).
+Return JSON: {"sport": "<sport_key>", "team_a": "<full team name for YES side>", "team_b": "<full team name>"}
+Return null if this is not a team sports matchup (e.g., crypto, politics, individual tennis, esports).
+
+Valid sport keys: nba, nhl, nfl, mlb, epl, laliga, seriea, bundesliga, ligue1, ucl, mls, ncaab, ncaaf, wnba
 team_a should be the first-mentioned team (typically the YES side).
-Normalize nicknames to full names (e.g., "Raps" -> "Toronto Raptors").
+Normalize nicknames to full names (e.g., "Raps" -> "Toronto Raptors", "Cavs" -> "Cleveland Cavaliers").
 Only return JSON, no other text."""
 
 
@@ -86,8 +88,10 @@ class TeamExtractor:
             return self._team_lists[sport]
         try:
             async with httpx.AsyncClient(timeout=10) as client:
+                # EPL uses v2, most others use v1
+                version = "v2" if sport == "epl" else "v1"
                 resp = await client.get(
-                    f"{BALLDONTLIE_BASE}/{sport}/teams",
+                    f"{BALLDONTLIE_BASE}/{sport}/{version}/teams",
                     headers={"Authorization": api_key},
                 )
                 if resp.status_code != 200:

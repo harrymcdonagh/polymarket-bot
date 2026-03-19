@@ -8,8 +8,26 @@ from src.models import ScannedMarket
 
 logger = logging.getLogger(__name__)
 
-BALLDONTLIE_BASE = "https://api.balldontlie.io/v1"
+BALLDONTLIE_BASE = "https://api.balldontlie.io"
 DEFAULTS = {"rest_days_differential": 0.0, "standings_pct_delta": 0.0, "sports_is_relevant": 0.0}
+
+# Football leagues use v2 and "matches" instead of v1 and "games"
+SPORT_CONFIG = {
+    "nba": {"version": "v1", "games_endpoint": "games", "wins_key": "wins", "losses_key": "losses"},
+    "nhl": {"version": "v1", "games_endpoint": "games", "wins_key": "wins", "losses_key": "losses"},
+    "nfl": {"version": "v1", "games_endpoint": "games", "wins_key": "wins", "losses_key": "losses"},
+    "mlb": {"version": "v1", "games_endpoint": "games", "wins_key": "wins", "losses_key": "losses"},
+    "ncaab": {"version": "v1", "games_endpoint": "games", "wins_key": "wins", "losses_key": "losses"},
+    "ncaaf": {"version": "v1", "games_endpoint": "games", "wins_key": "wins", "losses_key": "losses"},
+    "wnba": {"version": "v1", "games_endpoint": "games", "wins_key": "wins", "losses_key": "losses"},
+    "epl": {"version": "v2", "games_endpoint": "matches", "wins_key": "wins", "losses_key": "losses"},
+    "laliga": {"version": "v1", "games_endpoint": "matches", "wins_key": "wins", "losses_key": "losses"},
+    "seriea": {"version": "v1", "games_endpoint": "matches", "wins_key": "wins", "losses_key": "losses"},
+    "bundesliga": {"version": "v1", "games_endpoint": "matches", "wins_key": "wins", "losses_key": "losses"},
+    "ligue1": {"version": "v1", "games_endpoint": "matches", "wins_key": "wins", "losses_key": "losses"},
+    "ucl": {"version": "v1", "games_endpoint": "matches", "wins_key": "wins", "losses_key": "losses"},
+    "mls": {"version": "v1", "games_endpoint": "matches", "wins_key": "wins", "losses_key": "losses"},
+}
 
 
 class SportsDataSource(StructuredDataSource):
@@ -26,6 +44,9 @@ class SportsDataSource(StructuredDataSource):
     async def fetch(self, market: ScannedMarket) -> dict[str, float]:
         info = await self.extractor.extract(market.question)
         if info is None:
+            return dict(DEFAULTS)
+
+        if info.sport not in SPORT_CONFIG:
             return dict(DEFAULTS)
 
         try:
@@ -59,8 +80,9 @@ class SportsDataSource(StructuredDataSource):
     async def _days_since_last_game(self, client: httpx.AsyncClient,
                                      sport: str, team_id: int,
                                      start: str, end: str, today) -> int:
+        cfg = SPORT_CONFIG.get(sport, {"version": "v1", "games_endpoint": "games"})
         resp = await client.get(
-            f"{BALLDONTLIE_BASE}/{sport}/games",
+            f"{BALLDONTLIE_BASE}/{sport}/{cfg['version']}/{cfg['games_endpoint']}",
             headers={"Authorization": self.api_key},
             params={"team_ids[]": team_id, "start_date": start, "end_date": end},
         )
@@ -78,8 +100,9 @@ class SportsDataSource(StructuredDataSource):
 
     async def _get_standings_delta(self, client: httpx.AsyncClient,
                                     sport: str, id_a: int, id_b: int) -> float:
+        cfg = SPORT_CONFIG.get(sport, {"version": "v1"})
         resp = await client.get(
-            f"{BALLDONTLIE_BASE}/{sport}/standings",
+            f"{BALLDONTLIE_BASE}/{sport}/{cfg['version']}/standings",
             headers={"Authorization": self.api_key},
         )
         if resp.status_code != 200:
