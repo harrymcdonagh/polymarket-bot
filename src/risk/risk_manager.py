@@ -61,8 +61,8 @@ class RiskManager:
                 decided_at=now,
             )
 
-        # Hard reject only for very low confidence (likely LLM failure)
-        if prediction.confidence < 0.2:
+        # Hard gate: confidence must exceed threshold (strict inequality)
+        if prediction.confidence < self.settings.CONFIDENCE_THRESHOLD:
             return TradeDecision(
                 market_id=prediction.market_id,
                 prediction=prediction,
@@ -70,7 +70,7 @@ class RiskManager:
                 bet_size_usd=0,
                 kelly_fraction=0,
                 risk_score=0.5,
-                rejection_reason=f"Confidence too low: {prediction.confidence:.2f} (likely calibration failure)",
+                rejection_reason=f"Confidence below gate: {prediction.confidence:.2f} < {self.settings.CONFIDENCE_THRESHOLD}",
                 decided_at=now,
             )
 

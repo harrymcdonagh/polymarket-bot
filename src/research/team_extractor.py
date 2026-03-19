@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import logging
+import re
 from dataclasses import dataclass
 import httpx
 
@@ -50,6 +51,10 @@ class TeamExtractor:
                 messages=[{"role": "user", "content": f"{EXTRACTION_PROMPT}\n\nQuestion: {question}"}],
             )
             text = response.content[0].text.strip()
+            # Strip markdown code fences if present
+            text = re.sub(r'^```(?:json)?\s*', '', text)
+            text = re.sub(r'\s*```$', '', text)
+            text = text.strip()
             parsed = json.loads(text)
             if parsed is None:
                 self._cache[question] = None
