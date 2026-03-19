@@ -403,15 +403,16 @@ class Database:
 
     def get_trade_stats(self) -> dict:
         conn = self._conn()
+        closed_statuses = "('settled', 'dry_run_settled', 'exited', 'dry_run_exited')"
         total = conn.execute("SELECT COUNT(*) as n FROM trades").fetchone()["n"]
         settled = conn.execute(
-            "SELECT COUNT(*) as n FROM trades WHERE status IN ('settled', 'dry_run_settled')"
+            f"SELECT COUNT(*) as n FROM trades WHERE status IN {closed_statuses}"
         ).fetchone()["n"]
         wins = conn.execute(
-            "SELECT COUNT(*) as n FROM trades WHERE status IN ('settled', 'dry_run_settled') AND (pnl > 0 OR hypothetical_pnl > 0)"
+            f"SELECT COUNT(*) as n FROM trades WHERE status IN {closed_statuses} AND (pnl > 0 OR hypothetical_pnl > 0)"
         ).fetchone()["n"]
         total_pnl = conn.execute(
-            "SELECT COALESCE(SUM(COALESCE(pnl, hypothetical_pnl, 0)), 0) as s FROM trades WHERE status IN ('settled', 'dry_run_settled')"
+            f"SELECT COALESCE(SUM(COALESCE(pnl, hypothetical_pnl, 0)), 0) as s FROM trades WHERE status IN {closed_statuses}"
         ).fetchone()["s"]
         dry_run_pending = conn.execute(
             "SELECT COUNT(*) as n FROM trades WHERE status = 'dry_run'"
