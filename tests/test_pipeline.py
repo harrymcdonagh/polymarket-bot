@@ -140,4 +140,4 @@ async def test_pipeline_includes_structured_sources():
     settings.SENTIMENT_USE_LLM = False  # disable for test
     pipe = Pipeline(settings=settings, db_path=":memory:")
     assert hasattr(pipe, "structured_pipeline")
-    assert len(pipe.structured_pipeline.sources) == 3  # CLOB, CoinGecko, FRED
+    assert len(pipe.structured_pipeline.sources) == 5  # CLOB, CoinGecko, FRED, SportsData, Odds

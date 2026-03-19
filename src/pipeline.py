@@ -19,6 +19,9 @@ from src.research.structured_pipeline import StructuredDataPipeline
 from src.research.clob import CLOBSource
 from src.research.coingecko import CoinGeckoSource
 from src.research.fred import FREDSource
+from src.research.team_extractor import TeamExtractor
+from src.research.sports_data import SportsDataSource
+from src.research.odds_data import OddsDataSource
 from src.research.sentiment import SentimentAnalyzer
 from src.predictor.features import extract_features
 from src.predictor.xgb_model import PredictionModel
@@ -76,11 +79,23 @@ class Pipeline:
             timeout=self.settings.RESEARCH_TIMEOUT,
             sentiment_analyzer=self.sentiment,
         )
+        self.team_extractor = TeamExtractor(
+            anthropic_key=self.settings.ANTHROPIC_API_KEY,
+            model=self.settings.SENTIMENT_MODEL,
+        )
         self.structured_pipeline = StructuredDataPipeline(
             sources=[
                 CLOBSource(),
                 CoinGeckoSource(),
                 FREDSource(api_key=self.settings.FRED_API_KEY),
+                SportsDataSource(
+                    api_key=self.settings.BALLDONTLIE_API_KEY,
+                    team_extractor=self.team_extractor,
+                ),
+                OddsDataSource(
+                    api_key=self.settings.ODDSPAPI_API_KEY,
+                    team_extractor=self.team_extractor,
+                ),
             ],
             timeout=self.settings.RESEARCH_TIMEOUT,
         )
@@ -190,7 +205,15 @@ class Pipeline:
             "narrative_alignment": research.narrative_vs_odds_alignment,
         }
 
-        features = extract_features(market, sentiment_agg, structured_data=structured_data)
+        # Initial feature extraction (edge/prob unknown yet, will update after calibration)
+        band_obs = self.db.count_calibration_band_obs(market.yes_price)
+        prediction_context = {
+            "edge": 0.0,
+            "predicted_prob": market.yes_price,
+            "calibration_band_obs": band_obs,
+        }
+        features = extract_features(market, sentiment_agg, structured_data=structured_data,
+                                    prediction_context=prediction_context)
         xgb_prob = self.xgb_model.predict(features)
 
         # Feed consolidated rules (or fallback to raw lessons) into calibrator
@@ -202,6 +225,21 @@ class Pipeline:
         prediction = await self.calibrator.calibrate(
             market, research, xgb_prob, lessons=lessons_for_calibrator,
         )
+
+        # Update lesson-derived features with actual prediction values
+        from src.predictor.features import _edge_anomaly_flag
+        features["edge_anomaly_flag"] = _edge_anomaly_flag(
+            prediction.edge, prediction.predicted_probability
+        )
+        band_obs_actual = self.db.count_calibration_band_obs(prediction.predicted_probability)
+        features["calibration_band_obs"] = band_obs_actual
+
+        # Store CLV diagnostic (not an XGBoost input — for future training data)
+        sharp_prob = (structured_data or {}).get("sharp_implied_prob", 0.0)
+        if sharp_prob > 0:
+            features["closing_line_value_delta"] = prediction.predicted_probability - sharp_prob
+        else:
+            features["closing_line_value_delta"] = 0.0
 
         # Stash features for saving with prediction
         prediction._features = features

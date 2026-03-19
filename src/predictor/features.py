@@ -1,10 +1,99 @@
 import math
+import re
 from src.models import ScannedMarket, ScanFlag
 
 
-def extract_features(market: ScannedMarket, sentiment_agg: dict, structured_data: dict | None = None) -> dict:
-    """Extract features for XGBoost from market data and sentiment."""
+# --- Market type classification from question text ---
+_SPREAD_PATTERNS = re.compile(
+    r'spread|handicap|\([+-]\d+\.?\d*\)|cover', re.IGNORECASE
+)
+_TOTALS_PATTERNS = re.compile(
+    r'\bO/U\b|\bover.?under\b|\btotal\b', re.IGNORECASE
+)
+_CRYPTO_PATTERNS = re.compile(
+    r'\b(bitcoin|btc|ethereum|eth|solana|sol|crypto|doge)\b.*\b(price|reach|hit|dip|above|below)\b',
+    re.IGNORECASE,
+)
+_SOCIAL_PATTERNS = re.compile(
+    r'\b(tweet|post|follower|retweet|like)\b.*\b(count|number|reach|hit)\b',
+    re.IGNORECASE,
+)
+_ESPORTS_PATTERNS = re.compile(
+    r'\b(LoL|Dota|CS2|CSGO|Valorant|esport|LCK|LEC|LCS|LPL)\b', re.IGNORECASE
+)
+_POLITICS_PATTERNS = re.compile(
+    r'\b(election|president|parliament|vote|governor|senate|congress|minister)\b',
+    re.IGNORECASE,
+)
+
+# Data quality tier keywords (tier 1 = best, tier 4 = no-bet)
+_TIER1_PATTERNS = re.compile(
+    r'\b(NBA|NFL|Premier League|EPL|La Liga|Serie A|Bundesliga|Ligue 1|MLB|Champions League)\b',
+    re.IGNORECASE,
+)
+_TIER2_PATTERNS = re.compile(
+    r'\b(NHL|Primeira Liga|Eredivisie|MLS|Liga MX|World Cup|WBC|Olympics|NCAA)\b',
+    re.IGNORECASE,
+)
+_TIER3_PATTERNS = re.compile(
+    r'\b(Challenger|ITF|CBA|Patriot League|SWAC|Zadar)\b', re.IGNORECASE
+)
+
+
+def classify_market_type(question: str) -> int:
+    """Classify market type from question text.
+
+    Returns: 0=moneyline/win, 1=totals, 2=spread, 3=political,
+             4=crypto, 5=social/behavioral, 6=esports
+    """
+    if _SOCIAL_PATTERNS.search(question):
+        return 5
+    if _CRYPTO_PATTERNS.search(question):
+        return 4
+    if _SPREAD_PATTERNS.search(question):
+        return 2
+    if _TOTALS_PATTERNS.search(question):
+        return 1
+    if _ESPORTS_PATTERNS.search(question):
+        return 6
+    if _POLITICS_PATTERNS.search(question):
+        return 3
+    return 0  # default: moneyline/win
+
+
+def classify_data_quality_tier(question: str) -> int:
+    """Classify data quality tier from question text.
+
+    Returns: 1=top tier (major leagues), 2=mid tier, 3=low data, 4=no-bet domains
+    """
+    if _SOCIAL_PATTERNS.search(question):
+        return 4
+    if _CRYPTO_PATTERNS.search(question):
+        return 4
+    if _TIER3_PATTERNS.search(question):
+        return 3
+    if _ESPORTS_PATTERNS.search(question):
+        return 3
+    if _TIER1_PATTERNS.search(question):
+        return 1
+    if _TIER2_PATTERNS.search(question):
+        return 2
+    return 2  # default: mid-tier for unclassified
+
+
+def extract_features(market: ScannedMarket, sentiment_agg: dict,
+                     structured_data: dict | None = None,
+                     prediction_context: dict | None = None) -> dict:
+    """Extract features for XGBoost from market data and sentiment.
+
+    Args:
+        prediction_context: Optional dict with keys:
+            - edge: float, the predicted edge
+            - predicted_prob: float, the predicted probability
+            - calibration_band_obs: int, count of prior settled predictions in same band
+    """
     sd = structured_data or {}
+    ctx = prediction_context or {}
     pos = sentiment_agg.get("positive_ratio", 0)
     neg = sentiment_agg.get("negative_ratio", 0)
     neu = sentiment_agg.get("neutral_ratio", 0)
@@ -69,4 +158,20 @@ def extract_features(market: ScannedMarket, sentiment_agg: dict, structured_data
         "fred_fed_funds_rate": sd.get("fred_fed_funds_rate", 0.0),
         "fred_unemployment": sd.get("fred_unemployment", 0.0),
         "fred_is_relevant": sd.get("fred_is_relevant", 0.0),
+        # Lesson-derived features (4)
+        "market_type": classify_market_type(market.question),
+        "data_quality_tier": classify_data_quality_tier(market.question),
+        "edge_anomaly_flag": _edge_anomaly_flag(ctx.get("edge"), ctx.get("predicted_prob")),
+        "calibration_band_obs": ctx.get("calibration_band_obs", 0),
+        # Sports data features (3)
+        "rest_days_differential": sd.get("rest_days_differential", 0.0),
+        "standings_pct_delta": sd.get("standings_pct_delta", 0.0),
+        "sports_is_relevant": sd.get("sports_is_relevant", 0.0),
     }
+
+
+def _edge_anomaly_flag(edge: float | None, prob: float | None) -> int:
+    """Flag when claimed edge > 15% on a sub-60% probability prediction."""
+    if edge is None or prob is None:
+        return 0
+    return 1 if abs(edge) > 0.15 and prob < 0.60 else 0

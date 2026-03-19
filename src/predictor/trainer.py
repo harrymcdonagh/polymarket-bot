@@ -102,6 +102,15 @@ def market_to_features(market: dict) -> dict | None:
             "fred_fed_funds_rate": 0.0,
             "fred_unemployment": 0.0,
             "fred_is_relevant": 0.0,
+            # Lesson-derived features
+            "market_type": 0,
+            "data_quality_tier": 2,
+            "edge_anomaly_flag": 0,
+            "calibration_band_obs": 0,
+            # Sports data defaults
+            "rest_days_differential": 0.0,
+            "standings_pct_delta": 0.0,
+            "sports_is_relevant": 0.0,
         }
 
         # Label: 1 if YES won, 0 if NO won

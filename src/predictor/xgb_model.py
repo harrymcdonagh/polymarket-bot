@@ -21,6 +21,11 @@ FEATURE_ORDER = [
     # FRED economic (4)
     "fred_cpi_latest", "fred_fed_funds_rate", "fred_unemployment",
     "fred_is_relevant",
+    # Lesson-derived (4)
+    "market_type", "data_quality_tier", "edge_anomaly_flag",
+    "calibration_band_obs",
+    # Sports data (3)
+    "rest_days_differential", "standings_pct_delta", "sports_is_relevant",
 ]
 
 

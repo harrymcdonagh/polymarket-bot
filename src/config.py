@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     # FRED API
     FRED_API_KEY: str = ""
 
+    # Sports data
+    BALLDONTLIE_API_KEY: str = ""
+
+    # Sharp odds
+    ODDSPAPI_API_KEY: str = ""
+
     RESEARCH_TIMEOUT: int = 30
     RESEARCH_CONCURRENCY: int = 5  # max markets researched in parallel
 

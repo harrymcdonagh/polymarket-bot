@@ -599,6 +599,21 @@ class Database:
         ).fetchone()
         return dict(row) if row else None
 
+    def count_calibration_band_obs(self, predicted_prob: float, band_width: float = 0.05) -> int:
+        """Count settled predictions in the same probability band (e.g. 0.55-0.60)."""
+        band_lower = (predicted_prob // band_width) * band_width
+        band_upper = band_lower + band_width
+        conn = self._conn()
+        row = conn.execute(
+            """SELECT COUNT(*) as cnt FROM predictions p
+               JOIN trades t ON p.market_id = t.market_id
+               WHERE t.status IN ('settled', 'dry_run_settled')
+               AND t.resolved_outcome IS NOT NULL
+               AND p.predicted_prob >= ? AND p.predicted_prob < ?""",
+            (band_lower, band_upper),
+        ).fetchone()
+        return row["cnt"] if row else 0
+
     def get_market_question(self, condition_id: str) -> str | None:
         conn = self._conn()
         row = conn.execute(
