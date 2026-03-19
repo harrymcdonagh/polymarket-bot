@@ -36,7 +36,7 @@
         <div class="grid">
             <!-- Left column: Trade History (top), Flagged Markets (bottom) -->
             <section class="card">
-                <h2>Trades <span class="trade-tabs"><button class="trade-tab active" onclick="switchTradeTab('open')">Open</button><button class="trade-tab" onclick="switchTradeTab('settled')">Closed</button></span></h2>
+                <h2>Trades <span class="trade-tabs"><button class="trade-tab active" onclick="switchTradeTab('open')">Open</button><button class="trade-tab" onclick="switchTradeTab('settled')">Closed</button><button class="trade-tab" onclick="switchTradeTab('exited')">Exited</button></span></h2>
                 <div id="trades-table"></div>
             </section>
 
@@ -258,12 +258,14 @@
 
     function switchTradeTab(tab) {
         _tradeTab = tab;
-        document.querySelectorAll('.trade-tab').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase() === tab));
+        document.querySelectorAll('.trade-tab').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().startsWith(tab)));
         renderTrades();
     }
 
     /* ── Sortable trades ── */
     const isSettled = s => ['dry_run_settled', 'settled', 'dry_run_exited', 'exited'].includes(s);
+    const isExited = s => ['dry_run_exited', 'exited'].includes(s);
+    const isResolved = s => ['dry_run_settled', 'settled'].includes(s);
     let _tradesData = [];
     let _tradeSort = { col: null, asc: true };
 
@@ -312,7 +314,10 @@
         const el = document.getElementById('trades-table');
         if (_tradesData.length === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
 
-        let items = _tradesData.filter(t => _tradeTab === 'settled' ? isSettled(t.status) : !isSettled(t.status));
+        let items;
+        if (_tradeTab === 'settled') items = _tradesData.filter(t => isResolved(t.status));
+        else if (_tradeTab === 'exited') items = _tradesData.filter(t => isExited(t.status));
+        else items = _tradesData.filter(t => !isSettled(t.status));
         if (items.length === 0) { el.innerHTML = '<p class="muted">No ' + _tradeTab + ' trades.</p>'; return; }
         if (_tradeSort.col) {
             items.sort((a, b) => {
@@ -428,7 +433,10 @@
         const data = JSON.parse(text);
         const el = document.getElementById('markets-list');
         if (data.total === 0) { el.innerHTML = '<p class="muted">No flagged markets.</p>'; return; }
-        let html = '<div class="table-scroll"><table><colgroup><col style="width:auto"><col style="width:45px"><col style="width:170px"><col style="width:55px"></colgroup><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th></tr>';
+        const tierNames = {1:'T1',2:'T2',3:'T3',4:'NO-BET'};
+        const tierColors = {1:'var(--neon)',2:'var(--blue)',3:'var(--amber)',4:'var(--red)'};
+        const typeNames = {0:'ML',1:'O/U',2:'SPR',3:'POL',4:'CRY',5:'SOC',6:'ESP'};
+        let html = '<div class="table-scroll"><table><colgroup><col style="width:auto"><col style="width:45px"><col style="width:170px"><col style="width:55px"><col style="width:55px"></colgroup><tr><th>Market</th><th>YES</th><th>Result</th><th>Edge</th><th>Type</th></tr>';
         data.items.forEach(m => {
             const price = m.yes_price.toFixed(2);
             const priceColor = m.yes_price > 0.7 ? 'var(--neon)' : m.yes_price < 0.3 ? 'var(--red)' : 'var(--text-secondary)';
@@ -448,11 +456,25 @@
             const mName = m.slug
                 ? `<a href="https://polymarket.com/event/${esc(m.slug)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${esc(m.question||'')}</a>`
                 : esc(m.question||'');
+            // Parse features for tier/type badges
+            let tierHtml = '';
+            if (m.features_json) {
+                try {
+                    const f = JSON.parse(m.features_json);
+                    const tier = f.data_quality_tier || 0;
+                    const mtype = f.market_type != null ? f.market_type : -1;
+                    const tName = tierNames[tier] || '?';
+                    const tColor = tierColors[tier] || 'var(--text-ghost)';
+                    const mtName = typeNames[mtype] || '?';
+                    tierHtml = `<span style="color:${tColor};font-weight:600;font-size:0.7rem">${tName}</span> <span style="color:var(--text-ghost);font-size:0.65rem">${mtName}</span>`;
+                } catch(e) {}
+            }
             html += `<tr>
                 <td>${mName}</td>
                 <td style="color:${priceColor};font-weight:600">${price}</td>
                 <td>${resultHtml}</td>
                 <td>${edgeHtml}</td>
+                <td>${tierHtml}</td>
             </tr>`;
         });
         html += '</table></div>';

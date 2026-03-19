@@ -82,6 +82,7 @@ class Settings(BaseSettings):
 
     # Trade limits
     MAX_DAILY_TRADES: int = 15
+    MAX_TRADES_PER_MARKET_TYPE: int = 3  # max open trades in same market type (crypto, sports, etc.)
 
     RESEARCH_TIMEOUT: int = 30
     RESEARCH_CONCURRENCY: int = 5  # max markets researched in parallel

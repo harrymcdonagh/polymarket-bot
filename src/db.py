@@ -392,6 +392,19 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def count_open_trades_by_market_type(self, market_type: int) -> int:
+        """Count open trades with the same market_type feature value."""
+        conn = self._conn()
+        rows = conn.execute(
+            """SELECT COUNT(*) as n FROM trades t
+               JOIN predictions p ON t.market_id = p.market_id
+               WHERE t.status IN ('dry_run', 'pending')
+               AND t.resolved_outcome IS NULL
+               AND p.features_json LIKE ?""",
+            (f'%"market_type": {market_type}%',),
+        ).fetchone()
+        return rows["n"] if rows else 0
+
     def get_daily_trade_count(self) -> int:
         """Count trades placed today."""
         conn = self._conn()
@@ -504,7 +517,7 @@ class Database:
         rows = conn.execute(
             """SELECT p.market_id AS condition_id, p.question, p.market_yes_price AS yes_price,
                       p.recommended_side, p.edge, p.confidence, p.approved, p.rejection_reason,
-                      p.predicted_at
+                      p.predicted_at, p.features_json
                FROM predictions p
                INNER JOIN (
                    SELECT market_id, MAX(predicted_at) as max_at

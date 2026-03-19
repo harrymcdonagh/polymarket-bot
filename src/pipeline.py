@@ -244,10 +244,28 @@ class Pipeline:
         # Stash features for saving with prediction
         prediction._features = features
 
+        # Log new feature summary
+        from src.predictor.features import classify_market_type, classify_data_quality_tier
+        tier_names = {1:'T1-Major',2:'T2-Mid',3:'T3-Low',4:'T4-NoBet'}
+        type_names = {0:'Moneyline',1:'Totals',2:'Spread',3:'Political',4:'Crypto',5:'Social',6:'Esports'}
+        mt = features.get("market_type", -1)
+        dt = features.get("data_quality_tier", 0)
+        sports = "yes" if features.get("sports_is_relevant", 0) > 0 else "no"
+        rest = features.get("rest_days_differential", 0)
+        standings = features.get("standings_pct_delta", 0)
+        clv = features.get("closing_line_value_delta", 0)
+        edge_flag = "ANOMALY" if features.get("edge_anomaly_flag", 0) else "ok"
+        band_obs = features.get("calibration_band_obs", 0)
+
         logger.info(
             f"Prediction: {prediction.recommended_side} | "
             f"prob={prediction.predicted_probability:.2%} | "
             f"edge={prediction.edge:.2%} | conf={prediction.confidence:.2f}"
+        )
+        logger.info(
+            f"  Features: type={type_names.get(mt,'?')} tier={tier_names.get(dt,'?')} "
+            f"sports={sports} rest={rest:.0f} standings={standings:.2f} "
+            f"clv={clv:.3f} edge_check={edge_flag} band_obs={band_obs}"
         )
         return prediction
 
@@ -383,6 +401,16 @@ class Pipeline:
                     daily_count = self.db.get_daily_trade_count()
                     if daily_count >= self.settings.MAX_DAILY_TRADES:
                         logger.info(f"[DAILY LIMIT] {daily_count}/{self.settings.MAX_DAILY_TRADES} trades today — skipping")
+                        continue
+
+                # Check concentration limit (max trades per market type)
+                if decision.approved and self.settings.MAX_TRADES_PER_MARKET_TYPE > 0:
+                    feat = getattr(prediction, '_features', {})
+                    mtype = feat.get("market_type", 0)
+                    type_count = self.db.count_open_trades_by_market_type(mtype)
+                    if type_count >= self.settings.MAX_TRADES_PER_MARKET_TYPE:
+                        type_names = {0:'Moneyline',1:'Totals',2:'Spread',3:'Political',4:'Crypto',5:'Social',6:'Esports'}
+                        logger.info(f"[CONCENTRATION LIMIT] {type_count}/{self.settings.MAX_TRADES_PER_MARKET_TYPE} open {type_names.get(mtype,'unknown')} trades — skipping")
                         continue
 
                 if decision.approved and not dry_run:
