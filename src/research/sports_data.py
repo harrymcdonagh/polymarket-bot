@@ -54,8 +54,10 @@ class SportsDataSource(StructuredDataSource):
             if id_a is None or id_b is None:
                 return dict(DEFAULTS)
 
+            import asyncio
             async with httpx.AsyncClient(timeout=10) as client:
                 rest_diff = await self._get_rest_differential(client, info.sport, id_a, id_b)
+                await asyncio.sleep(0.5)  # avoid rate limiting
                 standings_delta = await self._get_standings_delta(client, info.sport, id_a, id_b)
 
             return {
@@ -101,9 +103,14 @@ class SportsDataSource(StructuredDataSource):
     async def _get_standings_delta(self, client: httpx.AsyncClient,
                                     sport: str, id_a: int, id_b: int) -> float:
         cfg = SPORT_CONFIG.get(sport, {"version": "v1"})
+        # Current season: NBA/NHL use year the season started (e.g. 2025 for 2025-26)
+        current_year = datetime.now(timezone.utc).year
+        # Most sports seasons span two calendar years; use previous year if before July
+        season = current_year - 1 if datetime.now(timezone.utc).month < 7 else current_year
         resp = await client.get(
             f"{BALLDONTLIE_BASE}/{sport}/{cfg['version']}/standings",
             headers={"Authorization": self.api_key},
+            params={"season": season},
         )
         if resp.status_code != 200:
             return 0.0
