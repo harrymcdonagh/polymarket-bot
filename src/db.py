@@ -713,6 +713,82 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_pnl_history_from_trades(self, since: str) -> list[dict]:
+        """Build PnL history from individual trades for a filtered time window.
+
+        Used by the v2 system view where aggregate snapshots include old trade data.
+        Returns one data point per hour based on trade settlement times.
+        """
+        conn = self._conn()
+        closed_statuses = "('settled', 'dry_run_settled', 'exited', 'dry_run_exited')"
+
+        # Get all closed trades after since, ordered by settlement time
+        rows = conn.execute(
+            f"""SELECT COALESCE(pnl, hypothetical_pnl, 0) as trade_pnl,
+                       COALESCE(settled_at, executed_at) as close_time
+                FROM trades
+                WHERE status IN {closed_statuses}
+                AND executed_at > ?
+                ORDER BY close_time ASC""",
+            (since,),
+        ).fetchall()
+
+        if not rows:
+            # No settled trades yet — return current unrealised state
+            from src.pnl import calc_unrealised_pnl
+            open_pos = self.get_open_positions_with_prices()
+            open_pos = [t for t in open_pos if (t.get("executed_at") or "") > since]
+            unrealised = sum(
+                calc_unrealised_pnl(
+                    side=t["side"], amount=t["amount"],
+                    entry_price=t["price"], current_yes_price=t["current_price"],
+                )
+                for t in open_pos if t.get("current_price") is not None
+            )
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            return [{
+                "date": now,
+                "cumulative_pnl": 0,
+                "unrealised_pnl": round(unrealised, 2),
+                "total_pnl": round(unrealised, 2),
+            }]
+
+        # Build cumulative PnL over time
+        history = []
+        cumulative = 0.0
+        for row in rows:
+            cumulative += row["trade_pnl"]
+            close_time = (row["close_time"] or "")[:16].replace("T", " ")
+            history.append({
+                "date": close_time,
+                "cumulative_pnl": round(cumulative, 2),
+                "unrealised_pnl": 0,  # Can't reconstruct historical unrealised
+                "total_pnl": round(cumulative, 2),
+            })
+
+        # Add current unrealised to the last point
+        from src.pnl import calc_unrealised_pnl
+        open_pos = self.get_open_positions_with_prices()
+        open_pos = [t for t in open_pos if (t.get("executed_at") or "") > since]
+        unrealised = sum(
+            calc_unrealised_pnl(
+                side=t["side"], amount=t["amount"],
+                entry_price=t["price"], current_yes_price=t["current_price"],
+            )
+            for t in open_pos if t.get("current_price") is not None
+        )
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        history.append({
+            "date": now,
+            "cumulative_pnl": round(cumulative, 2),
+            "unrealised_pnl": round(unrealised, 2),
+            "total_pnl": round(cumulative + unrealised, 2),
+        })
+
+        return history
+
     # ---------------------------------------------------------------------------
     # Crypto read methods (tables created by the crypto bot — may not exist yet)
     # ---------------------------------------------------------------------------

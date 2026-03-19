@@ -101,14 +101,13 @@ class DashboardService:
         return self.db.get_flagged_markets_with_predictions(limit=30)
 
     def get_pnl_history(self, since: str | None = None) -> list[dict]:
+        if since:
+            # For filtered view, build PnL from trades directly (not aggregate snapshots)
+            return self.db.get_pnl_history_from_trades(since)
+
         snapshots = self.db.get_pnl_snapshots()
         if not snapshots:
             return []
-        if since:
-            # Normalize format: both "2026-03-19 15:29" and "2026-03-19T15:29" should match
-            since_normalized = since.replace("T", " ").replace("+00:00", "")
-            snapshots = [s for s in snapshots
-                         if (s["snapshot_at"] or "").replace("T", " ").replace("+00:00", "") > since_normalized]
         return [
             {
                 "date": s["snapshot_at"][:16].replace("T", " "),
