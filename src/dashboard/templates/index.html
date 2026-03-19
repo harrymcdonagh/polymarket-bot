@@ -358,6 +358,14 @@
                     col6Str = '$' + value.toFixed(0);
                     col6Style = value >= t.amount ? 'color:var(--neon)' : 'color:var(--red)';
                 }
+            } else if (t.exit_reason) {
+                // Exited early — show exit reason
+                const reasons = {stop_loss:'STOP LOSS',negative_edge:'EDGE GONE',profit_lock:'PROFIT LOCK',stale_position:'STALE'};
+                col5Str = reasons[t.exit_reason] || t.exit_reason;
+                col5Style = 'color:var(--amber);font-size:0.75rem';
+                const exitPnl = t.pnl || t.hypothetical_pnl || 0;
+                col6Str = exitPnl >= 0 ? 'WIN' : 'LOSS';
+                col6Style = exitPnl >= 0 ? 'color:var(--neon);font-weight:700' : 'color:var(--red);font-weight:700';
             } else {
                 // Outcome
                 const outcome = t.resolved_outcome || '\u2014';
