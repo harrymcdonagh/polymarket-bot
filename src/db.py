@@ -155,6 +155,7 @@ class Database:
             ("current_price", "REAL"),
             ("price_updated_at", "TEXT"),
             ("postmortem_done", "INTEGER DEFAULT 0"),
+            ("exit_reason", "TEXT"),
         ]
         for col_name, col_type in migrations:
             if col_name not in existing:
@@ -235,7 +236,7 @@ class Database:
     def get_all_settled_trades(self, limit: int = 50, exclude_postmortem_done: bool = False) -> list[dict]:
         """All settled trades (wins and losses, real and dry-run)."""
         conn = self._conn()
-        where = "WHERE status IN ('settled', 'dry_run_settled')"
+        where = "WHERE status IN ('settled', 'dry_run_settled', 'exited', 'dry_run_exited')"
         if exclude_postmortem_done:
             where += " AND COALESCE(postmortem_done, 0) = 0"
         rows = conn.execute(
@@ -542,6 +543,38 @@ class Database:
             (resolved_outcome, hypothetical_pnl, now, trade_id),
         )
         conn.commit()
+
+    def mark_trade_exited(self, trade_id: int, status: str, exit_reason: str, pnl: float):
+        """Mark a trade as exited by the exit evaluator."""
+        conn = self._conn()
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """UPDATE trades SET status = ?, exit_reason = ?, hypothetical_pnl = ?,
+               settled_at = ? WHERE id = ?""",
+            (status, exit_reason, pnl, now, trade_id),
+        )
+        conn.commit()
+
+    def get_exit_candidates(self) -> list[dict]:
+        """Get open positions eligible for exit evaluation."""
+        conn = self._conn()
+        rows = conn.execute(
+            """SELECT t.id, t.market_id, t.side, t.amount, t.price,
+                      t.current_price, t.predicted_prob, t.executed_at, t.status,
+                      ms.question
+               FROM trades t
+               LEFT JOIN (
+                   SELECT condition_id, question,
+                          ROW_NUMBER() OVER (PARTITION BY condition_id ORDER BY snapshot_at DESC) as rn
+                   FROM market_snapshots
+               ) ms ON t.market_id = ms.condition_id AND ms.rn = 1
+               WHERE t.status IN ('dry_run', 'pending')
+               AND t.resolved_outcome IS NULL
+               AND t.current_price IS NOT NULL
+               AND t.predicted_prob IS NOT NULL
+               ORDER BY t.executed_at ASC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def update_trade_price(self, trade_id: int, current_price: float):
         conn = self._conn()

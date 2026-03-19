@@ -8,6 +8,7 @@ import httpx
 from src.db import Database
 from src.notifications.telegram import TelegramNotifier
 from src.pnl import calc_unrealised_pnl
+from src.settler.exit_evaluator import evaluate_exit
 
 if TYPE_CHECKING:
     from src.postmortem.postmortem import PostmortemAnalyzer
@@ -36,11 +37,13 @@ Return ONLY valid JSON:
 class Settler:
     def __init__(self, db: Database, notifier: TelegramNotifier,
                  gamma_url: str = "https://gamma-api.polymarket.com",
-                 postmortem: "PostmortemAnalyzer | None" = None):
+                 postmortem: "PostmortemAnalyzer | None" = None,
+                 settings=None):
         self.db = db
         self.notifier = notifier
         self.gamma_url = gamma_url
         self.postmortem = postmortem
+        self._settings = settings
         self._last_summary_date: str | None = None
         self._last_positions_update: str | None = None
 
@@ -258,6 +261,76 @@ class Settler:
             await self.notifier.send(msg)
             self._last_positions_update = now.isoformat()
 
+    async def _evaluate_exits(self, market_data: dict[str, dict]) -> list[dict]:
+        """Evaluate exit rules for all open positions. Returns list of exit actions taken."""
+        candidates = self.db.get_exit_candidates()
+        if not candidates:
+            return []
+
+        s = self._settings
+        fee_rate = s.POLYMARKET_FEE if s else 0.02
+        exits_taken = []
+
+        for pos in candidates:
+            # Skip markets that have resolved (avoid selling right before settlement)
+            data = market_data.get(pos["market_id"])
+            if data:
+                closed = data.get("closed", False)
+                if closed in (True, "true"):
+                    continue
+
+            decision = evaluate_exit(
+                pos,
+                fee_rate=fee_rate,
+                stop_loss_pct=s.EXIT_STOP_LOSS_PCT if s else 0.40,
+                negative_edge_threshold=s.EXIT_NEGATIVE_EDGE_THRESHOLD if s else -0.05,
+                profit_lock_pct=s.EXIT_PROFIT_LOCK_PCT if s else 0.60,
+                stale_days=s.EXIT_STALE_DAYS if s else 30,
+                stale_edge_threshold=s.EXIT_STALE_EDGE_THRESHOLD if s else 0.02,
+            )
+
+            if decision is None:
+                continue
+
+            exit_status = "dry_run_exited" if pos["status"] == "dry_run" else "exited"
+
+            self.db.mark_trade_exited(
+                trade_id=decision.trade_id,
+                status=exit_status,
+                exit_reason=decision.reason,
+                pnl=round(decision.pnl, 2),
+            )
+
+            logger.info(
+                f"EXIT [{decision.reason}]: {decision.question[:60]} | "
+                f"edge={decision.current_edge:.2%} | PnL=${decision.pnl:.2f}"
+            )
+
+            if self.notifier.is_enabled:
+                msg = self.notifier.format_exit_alert(
+                    question=decision.question,
+                    reason=decision.reason,
+                    side=pos["side"],
+                    entry_price=pos["price"],
+                    current_price=pos["current_price"],
+                    pnl=decision.pnl,
+                )
+                try:
+                    await self.notifier.send(msg)
+                except Exception as e:
+                    logger.warning(f"Exit notification failed: {e}")
+
+            exits_taken.append({
+                "trade_id": decision.trade_id,
+                "reason": decision.reason,
+                "pnl": decision.pnl,
+            })
+
+        if exits_taken:
+            logger.info(f"Exited {len(exits_taken)} positions this cycle")
+
+        return exits_taken
+
     async def run(self) -> None:
         """Check all unresolved dry-run trades and settle any that have resolved."""
         trades = self.db.get_unresolved_dry_run_trades()
@@ -425,6 +498,9 @@ class Settler:
                     pnl=pnl,
                 )
                 await self.notifier.send(msg)
+
+        # --- Exit evaluation (after settlement, so resolved markets are handled first) ---
+        exits = await self._evaluate_exits(market_data)
 
         # Brier score calibration tracking
         settled = self.db.get_all_settled_trades(limit=500)

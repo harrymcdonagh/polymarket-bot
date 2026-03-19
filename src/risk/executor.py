@@ -73,6 +73,53 @@ class TradeExecutor:
                 executed_at=now,
             )
 
+    def sell(self, trade: dict, current_price: float) -> dict:
+        """Place a SELL order to exit a position.
+
+        Args:
+            trade: dict with keys: id, market_id, side, amount, price (entry yes_price)
+            current_price: current YES market price
+
+        Returns:
+            dict with keys: success (bool), order_id (str|None), fill_price (float|None)
+        """
+        try:
+            from py_clob_client.order_builder.constants import SELL
+
+            side = trade["side"]
+            amount = trade["amount"]
+            entry_price = trade["price"]
+
+            if side == "YES":
+                token_id = trade.get("token_yes_id", "")
+                shares = amount / entry_price if entry_price > 0 else 0
+                sell_price = round(current_price * 0.995, 2)
+            else:
+                token_id = trade.get("token_no_id", "")
+                no_entry_price = 1.0 - entry_price
+                shares = amount / no_entry_price if no_entry_price > 0 else 0
+                sell_price = round((1.0 - current_price) * 0.995, 2)
+
+            if not token_id or shares <= 0 or sell_price <= 0:
+                logger.warning(f"Cannot sell trade {trade['id']}: invalid params")
+                return {"success": False, "order_id": None, "fill_price": None}
+
+            order_args = {
+                "token_id": token_id,
+                "price": sell_price,
+                "size": round(shares, 2),
+                "side": SELL,
+            }
+            response = self.clob.create_and_post_order(order_args)
+            order_id = response.get("orderID", response.get("order_id", "unknown"))
+            logger.info(f"SELL order placed: {order_id} | trade {trade['id']} | {shares:.2f} shares @ ${sell_price}")
+
+            return {"success": True, "order_id": order_id, "fill_price": sell_price}
+
+        except Exception as e:
+            logger.error(f"SELL order failed for trade {trade['id']}: {e}")
+            return {"success": False, "order_id": None, "fill_price": None}
+
     async def watch_settlement(self, trade_id: int, token_id: str, max_checks: int = 2016):
         """Poll for market resolution and update trade status.
 

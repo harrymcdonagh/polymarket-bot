@@ -72,6 +72,14 @@ class Settings(BaseSettings):
     # Sharp odds
     ODDSPAPI_API_KEY: str = ""
 
+    # Exit rules
+    EXIT_ENABLED: bool = False
+    EXIT_STOP_LOSS_PCT: float = 0.40
+    EXIT_NEGATIVE_EDGE_THRESHOLD: float = -0.05
+    EXIT_PROFIT_LOCK_PCT: float = 0.60
+    EXIT_STALE_DAYS: int = 30
+    EXIT_STALE_EDGE_THRESHOLD: float = 0.02
+
     RESEARCH_TIMEOUT: int = 30
     RESEARCH_CONCURRENCY: int = 5  # max markets researched in parallel
 

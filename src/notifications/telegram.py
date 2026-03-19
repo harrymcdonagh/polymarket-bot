@@ -72,6 +72,19 @@ class TelegramNotifier:
             f"Hypothetical P&L: {pnl_str}"
         )
 
+    def format_exit_alert(self, question: str, reason: str, side: str,
+                          entry_price: float, current_price: float,
+                          pnl: float) -> str:
+        pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
+        reason_display = reason.replace("_", " ").title()
+        return (
+            f"*Position Exit*\n"
+            f"Market: {question}\n"
+            f"Reason: {reason_display}\n"
+            f"Side: {side} | Entry: ${entry_price:.2f} | Current: ${current_price:.2f}\n"
+            f"PnL: {pnl_str}"
+        )
+
     def format_error_alert(self, error: str) -> str:
         return f"*Pipeline Error*\n{error}"
 

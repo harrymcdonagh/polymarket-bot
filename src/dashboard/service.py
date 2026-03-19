@@ -305,6 +305,7 @@ class DashboardService:
             db=self.pipeline.db, notifier=self.pipeline.notifier,
             postmortem=self.pipeline.postmortem,
             gamma_url=self.pipeline.settings.POLYMARKET_GAMMA_URL,
+            settings=self.pipeline.settings,
         )
         await asyncio.sleep(60)  # let first pipeline cycle run first
         while True:

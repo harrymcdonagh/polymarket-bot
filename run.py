@@ -65,7 +65,8 @@ def main():
         notifier = TelegramNotifier(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
         postmortem = PostmortemAnalyzer(settings=settings, db=db)
         settler = Settler(db=db, notifier=notifier, postmortem=postmortem,
-                          gamma_url=settings.POLYMARKET_GAMMA_URL)
+                          gamma_url=settings.POLYMARKET_GAMMA_URL,
+                          settings=settings)
 
         from src.dashboard.log_handler import SharedFileLogHandler
         logging.getLogger().addHandler(SharedFileLogHandler())
