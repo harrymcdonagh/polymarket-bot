@@ -64,6 +64,8 @@ header { display: flex; align-items: center; gap: 8px; padding: 0 12px; min-heig
 .header-actions { display: flex; gap: 6px; margin-left: 8px; }
 .btn-sm { background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary); padding: 6px 10px; border-radius: var(--radius); font-family: var(--font-mono); font-size: 11px; cursor: pointer; min-height: 32px; transition: all 0.15s var(--ease); }
 .btn-sm:active { background: var(--surface-hover); border-color: var(--neon); color: var(--neon); }
+.trade-filter.active { background: var(--surface-hover); border-color: var(--neon); color: var(--neon); }
+.trade-filter { padding: 4px 8px; min-height: 24px; font-size: 10px; }
 .btn-icon { padding: 6px 8px; font-size: 14px; }
 
 /* ── Activity bar ── */
