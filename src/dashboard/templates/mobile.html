@@ -32,8 +32,16 @@
     </section>
 
     <main>
-        <section class="stats-grid" id="stats-grid"
-                 hx-get="/api/stats" hx-trigger="load, every 10s" hx-swap="innerHTML">
+        <div style="display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.75rem;">
+            <label style="color:var(--text-ghost);font-size:0.7rem;">System:</label>
+            <select id="system-selector" onchange="switchSystem(this.value)" style="background:#131820;color:var(--text-primary);border:1px solid #1C2333;border-radius:4px;padding:0.15rem 0.4rem;font-size:0.7rem;font-family:'JetBrains Mono',monospace;">
+                <option value="">All Time</option>
+                <option value="v2" selected>New System (v2)</option>
+            </select>
+            <span id="system-since-label" style="color:var(--text-ghost);font-size:0.6rem;"></span>
+        </div>
+
+        <section class="stats-grid" id="stats-grid">
         </section>
 
         <!-- 5 Accordion Sections -->
@@ -54,12 +62,17 @@
 
         <section class="accordion" id="acc-trades">
             <div class="accordion-header" onclick="toggleAccordion('trades')">
-                <span class="accordion-title">Trade History</span>
+                <span class="accordion-title">Trades</span>
                 <span class="accordion-badge" id="badge-trades"></span>
                 <span class="accordion-arrow" id="arrow-trades">&#9654;</span>
             </div>
             <div class="accordion-body" id="body-trades">
                 <div>
+                    <div style="display:flex;gap:0.25rem;padding:0.25rem 0.5rem;">
+                        <button class="btn-sm trade-filter active" onclick="switchTradeFilter('open')">Open</button>
+                        <button class="btn-sm trade-filter" onclick="switchTradeFilter('settled')">Closed</button>
+                        <button class="btn-sm trade-filter" onclick="switchTradeFilter('exited')">Exited</button>
+                    </div>
                     <div class="accordion-content">
                         <div id="trades-list"></div>
                     </div>
@@ -196,10 +209,46 @@
     }
     applyAccordionState();
 
+    /* ── System version selector ── */
+    const SYSTEM_V2_SINCE = '2026-03-19 15:29:00';
+    let _systemSince = SYSTEM_V2_SINCE;
+    let _tradeFilter = 'open';
+
+    function switchSystem(val) {
+        _systemSince = val === 'v2' ? SYSTEM_V2_SINCE : null;
+        const label = document.getElementById('system-since-label');
+        label.textContent = _systemSince ? '(since ' + SYSTEM_V2_SINCE.slice(5,16) + ')' : '';
+        _lastResponse = {};
+        loadStats();
+        loadTrades(1);
+        refreshChart();
+    }
+
+    function sinceParam() {
+        return _systemSince ? 'since=' + encodeURIComponent(_systemSince) : '';
+    }
+
+    // Init label
+    document.addEventListener('DOMContentLoaded', function() {
+        var label = document.getElementById('system-since-label');
+        if (label && _systemSince) label.textContent = '(since ' + SYSTEM_V2_SINCE.slice(5,16) + ')';
+    });
+
+    const isSettled = s => ['dry_run_settled', 'settled', 'dry_run_exited', 'exited'].includes(s);
+    const isExited = s => ['dry_run_exited', 'exited'].includes(s);
+    const isResolved = s => ['dry_run_settled', 'settled'].includes(s);
+
+    function switchTradeFilter(filter) {
+        _tradeFilter = filter;
+        document.querySelectorAll('.trade-filter').forEach(b => b.classList.toggle('active', b.textContent.toLowerCase().startsWith(filter)));
+        renderFilteredTrades();
+    }
+
     /* ── PnL Chart ── */
     let pnlChart = null;
     async function refreshChart() {
-        const resp = await fetch('/api/pnl-history');
+        const sp = sinceParam();
+        const resp = await fetch('/api/pnl-history' + (sp ? '?' + sp : ''));
         const data = await resp.json();
         const labels = data.map(function(d) { return d.date; });
         const total = data.map(function(d) { return d.total_pnl; });
@@ -305,68 +354,50 @@
     }
 
     /* ── Trades ── */
-    let tradesPage = 1;
-    const TRADES_PER_PAGE = 20;
+    let _allTrades = [];
 
-    async function loadTrades(page) {
-        tradesPage = page || 1;
-        const resp = await fetch('/api/trades?page=' + tradesPage + '&per_page=' + TRADES_PER_PAGE);
+    async function loadTrades() {
+        const sp = sinceParam();
+        const resp = await fetch('/api/trades?page=1&per_page=200' + (sp ? '&' + sp : ''));
         var text = await resp.text();
-        if (unchanged('trades-' + tradesPage, text)) return;
+        if (unchanged('trades-all', text)) return;
         const data = JSON.parse(text);
+        _allTrades = data.items || [];
+        const badge = document.getElementById('badge-trades');
+        if (badge) badge.textContent = _allTrades.length + ' trades';
+        renderFilteredTrades();
+    }
+
+    function renderFilteredTrades() {
+        let items;
+        if (_tradeFilter === 'settled') items = _allTrades.filter(t => isResolved(t.status));
+        else if (_tradeFilter === 'exited') items = _allTrades.filter(t => isExited(t.status));
+        else items = _allTrades.filter(t => !isSettled(t.status));
+
         const el = document.getElementById('trades-list');
         if (!el) return;
+        if (items.length === 0) { el.innerHTML = '<p class="muted">No ' + _tradeFilter + ' trades.</p>'; return; }
 
-        const badge = document.getElementById('badge-trades');
-        if (badge) badge.textContent = data.total + ' trades';
+        // Sort by PnL descending for closed/exited, by date for open
+        if (_tradeFilter !== 'open') {
+            items.sort((a, b) => {
+                var pa = a.pnl || a.hypothetical_pnl || 0;
+                var pb = b.pnl || b.hypothetical_pnl || 0;
+                return pb - pa;
+            });
+        }
 
-        if (data.total === 0) { el.innerHTML = '<p class="muted">No trades yet.</p>'; return; }
-
+        const exitReasons = {stop_loss:'STOP LOSS',negative_edge:'EDGE GONE',profit_lock:'PROFIT LOCK',stale_position:'STALE'};
         let html = '';
-        data.items.forEach(function(t) {
+        items.forEach(function(t) {
             var nameText = esc(t.question || t.market_id || '');
             var name = t.slug ? '<a href="https://polymarket.com/event/' + esc(t.slug) + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">' + nameText + '</a>' : nameText;
             var sideCls = t.side === 'YES' ? 'side-yes' : 'side-no';
-            var isOpen = t.status === 'dry_run' || t.status === 'pending';
-
-            // Entry / Now prices
-            var entryStr = t.price.toFixed(2);
-            var nowStr = '\u2014';
-            var nowCls = 'pnl-na';
-            if (isOpen && t.current_price != null && t.current_price > 0) {
-                nowStr = t.current_price.toFixed(2);
-                var delta = t.side === 'YES' ? t.current_price - t.price : t.price - t.current_price;
-                nowCls = delta >= 0 ? 'pnl-pos' : 'pnl-neg';
-            }
-
-            // Value
-            var valueStr = '\u2014';
-            var valueCls = 'pnl-na';
-            if (isOpen && t.current_price != null && t.current_price > 0) {
-                var shares, curSharePrice;
-                if (t.side === 'YES') {
-                    shares = t.amount / t.price;
-                    curSharePrice = t.current_price;
-                } else {
-                    shares = t.amount / (1.0 - t.price);
-                    curSharePrice = 1.0 - t.current_price;
-                }
-                var value = shares * curSharePrice;
-                valueStr = '$' + value.toFixed(0);
-                valueCls = value >= t.amount ? 'pnl-pos' : 'pnl-neg';
-            } else if (!isOpen) {
-                var settled_pnl = t.pnl != null ? t.pnl : (t.hypothetical_pnl != null ? t.hypothetical_pnl : null);
-                if (settled_pnl !== null) {
-                    var val = t.amount + settled_pnl;
-                    valueStr = '$' + Math.max(0, val).toFixed(0);
-                    valueCls = val >= t.amount ? 'pnl-pos' : 'pnl-neg';
-                }
-            }
+            var tIsOpen = !isSettled(t.status);
 
             // PnL
-            var pnl = null;
-            var pnlLabel = '';
-            if (isOpen && t.current_price != null && t.current_price > 0) {
+            var pnl = null, pnlLabel = '';
+            if (tIsOpen && t.current_price != null && t.current_price > 0) {
                 pnl = calcUnrealisedPnl(t.side, t.amount, t.price, t.current_price);
                 pnlLabel = ' ur';
             } else {
@@ -375,31 +406,36 @@
             var pnlStr = pnl !== null ? (pnl >= 0 ? '+' : '-') + '$' + Math.abs(pnl).toFixed(2) + pnlLabel : '\u2014';
             var pnlCls = pnl !== null ? (pnl >= 0 ? 'pnl-pos' : 'pnl-neg') : 'pnl-na';
 
+            // Status line
+            var statusHtml = '';
+            if (t.exit_reason) {
+                statusHtml = '<span style="color:var(--amber);font-size:0.65rem;">' + (exitReasons[t.exit_reason] || t.exit_reason) + '</span>';
+            } else if (t.resolved_outcome) {
+                var won = t.side === t.resolved_outcome;
+                statusHtml = '<span style="color:' + (won ? 'var(--neon)' : 'var(--red)') + ';font-weight:600;font-size:0.7rem;">' + (won ? 'WIN' : 'LOSS') + '</span>';
+            } else if (tIsOpen && t.current_price != null) {
+                statusHtml = '<span style="color:var(--text-ghost);font-size:0.65rem;">' + t.current_price.toFixed(2) + '</span>';
+            }
+
+            // Date
+            var dateStr = t.executed_at ? t.executed_at.slice(5,16).replace('T',' ') : '';
+
             html += '<div class="trade-card">' +
                 '<div class="trade-card-question">' + name + '</div>' +
                 '<div class="trade-card-row">' +
                     '<span class="side-badge ' + sideCls + '">' + esc(t.side) + '</span>' +
-                    '<span class="trade-amount">$' + t.amount.toFixed(0) + '</span>' +
-                    '<span class="trade-detail">' + entryStr + ' &rarr; <span class="' + nowCls + '">' + nowStr + '</span></span>' +
-                '</div>' +
-                '<div class="trade-card-row">' +
-                    '<span class="trade-detail">Val: <span class="' + valueCls + '">' + valueStr + '</span></span>' +
+                    '<span class="trade-amount">$' + t.amount.toFixed(0) + ' @ ' + t.price.toFixed(2) + '</span>' +
+                    statusHtml +
                     '<span class="trade-pnl ' + pnlCls + '">' + pnlStr + '</span>' +
-                '</div></div>';
-        });
-
-        const totalPages = Math.ceil(data.total / TRADES_PER_PAGE);
-        if (totalPages > 1) {
-            html += '<div class="pager">' +
-                '<button class="pager-btn" ' + (tradesPage <= 1 ? 'disabled' : '') + ' onclick="loadTrades(' + (tradesPage - 1) + ')">&laquo;</button>' +
-                '<span class="pager-info">' + tradesPage + ' / ' + totalPages + '</span>' +
-                '<button class="pager-btn" ' + (tradesPage >= totalPages ? 'disabled' : '') + ' onclick="loadTrades(' + (tradesPage + 1) + ')">&raquo;</button>' +
+                '</div>' +
+                '<div style="color:var(--text-ghost);font-size:0.6rem;padding:0 0.5rem 0.25rem;">' + dateStr + '</div>' +
                 '</div>';
-        }
+        });
         el.innerHTML = html;
     }
+
     loadTrades();
-    setInterval(function() { loadTrades(tradesPage); }, 10000);
+    setInterval(loadTrades, 10000);
 
     /* ── Markets ── */
     let marketsPage = 1;
@@ -483,39 +519,10 @@
                 (d.last_error ? '<span class="tag-err">ERR</span>' : '');
         }
 
-        /* Stats grid */
+        /* Stats grid — handled by loadStats(), skip htmx */
         if (evt.detail.target.id === 'stats-grid') {
-            const s = JSON.parse(evt.detail.xhr.responseText);
-            latestStats = s;
-            const pnlColor = s.total_pnl >= 0 ? 'var(--neon)' : 'var(--red)';
-            const pnlSign = s.total_pnl >= 0 ? '+' : '';
-            const accStr = s.prediction_accuracy && s.prediction_accuracy.evaluated > 0
-                ? (s.prediction_accuracy.accuracy * 100).toFixed(0) + '%'
-                : '\u2014';
-
-            var totalPnl = s.total_pnl + (s.unrealised_pnl || 0);
-            var totalPnlColor = totalPnl >= 0 ? 'var(--neon)' : 'var(--red)';
-            var totalPnlSign = totalPnl >= 0 ? '+' : '-';
-            var urSign = (s.unrealised_pnl || 0) >= 0 ? '+' : '-';
-
-            evt.detail.serverResponse =
-                '<div class="stats-top">' +
-                    '<div class="stat-card"><div class="stat-label">Trades</div><div class="stat-value">' + s.total_trades + '</div></div>' +
-                    '<div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value pending">' + (s.dry_run_pending || 0) + '</div></div>' +
-                    '<div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value">' + (s.win_rate * 100).toFixed(0) + '%</div></div>' +
-                    '<div class="stat-card"><div class="stat-label">Total PnL</div><div class="stat-value" style="color:' + totalPnlColor + '">' + totalPnlSign + '$' + Math.abs(totalPnl).toFixed(2) + '</div></div>' +
-                '</div>' +
-                '<div class="stats-more-toggle" onclick="this.nextElementSibling.classList.toggle(\'open\');this.textContent=this.nextElementSibling.classList.contains(\'open\')?\'&#9650; less stats\':\'&#9660; more stats\'">&#9660; more stats</div>' +
-                '<div class="stats-more">' +
-                    '<div class="stat-card"><div class="stat-label">Closed PnL</div><div class="stat-value" style="color:' + pnlColor + '">' + pnlSign + '$' + Math.abs(s.total_pnl).toFixed(2) + '</div></div>' +
-                    '<div class="stat-card"><div class="stat-label">Unrealised PnL</div><div class="stat-value" style="color:' + ((s.unrealised_pnl || 0) >= 0 ? 'var(--neon)' : 'var(--red)') + '">' + urSign + '$' + Math.abs(s.unrealised_pnl || 0).toFixed(2) + '</div></div>' +
-                    '<div class="stat-card"><div class="stat-label">Predictions</div><div class="stat-value">' + (s.total_predictions || 0) + '</div></div>' +
-                    '<div class="stat-card"><div class="stat-label">Accuracy</div><div class="stat-value" style="color:' + (accStr !== '\u2014' ? 'var(--neon)' : 'var(--text-ghost)') + '">' + accStr + '</div></div>' +
-                '</div>';
-
-            // Update accordion badges from stats
-            const bt = document.getElementById('badge-trades');
-            if (bt) bt.textContent = s.total_trades + ' trades';
+            evt.detail.shouldSwap = false;
+            return;
         }
 
         /* Log feed */
@@ -558,12 +565,46 @@
         else toast(key + ' updated');
     });
 
+    /* ── Stats (JS fetch with since) ── */
+    async function loadStats() {
+        const sp = sinceParam();
+        const resp = await fetch('/api/stats' + (sp ? '?' + sp : ''));
+        var text = await resp.text();
+        if (unchanged('stats-js', text)) return;
+        const s = JSON.parse(text);
+        latestStats = s;
+        const pnlColor = s.total_pnl >= 0 ? 'var(--neon)' : 'var(--red)';
+        const pnlSign = s.total_pnl >= 0 ? '+' : '';
+        const accStr = s.prediction_accuracy && s.prediction_accuracy.evaluated > 0
+            ? (s.prediction_accuracy.accuracy * 100).toFixed(0) + '%' : '\u2014';
+        var totalPnl = s.total_pnl + (s.unrealised_pnl || 0);
+        var totalPnlColor = totalPnl >= 0 ? 'var(--neon)' : 'var(--red)';
+        var totalPnlSign = totalPnl >= 0 ? '+' : '-';
+        var urSign = (s.unrealised_pnl || 0) >= 0 ? '+' : '-';
+        document.getElementById('stats-grid').innerHTML =
+            '<div class="stats-top">' +
+                '<div class="stat-card"><div class="stat-label">Trades</div><div class="stat-value">' + s.total_trades + '</div></div>' +
+                '<div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value pending">' + (s.dry_run_pending || 0) + '</div></div>' +
+                '<div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value">' + (s.win_rate * 100).toFixed(0) + '%</div></div>' +
+                '<div class="stat-card"><div class="stat-label">Total PnL</div><div class="stat-value" style="color:' + totalPnlColor + '">' + totalPnlSign + '$' + Math.abs(totalPnl).toFixed(2) + '</div></div>' +
+            '</div>' +
+            '<div class="stats-more-toggle" onclick="this.nextElementSibling.classList.toggle(\'open\');this.textContent=this.nextElementSibling.classList.contains(\'open\')?\'&#9650; less stats\':\'&#9660; more stats\'">&#9660; more stats</div>' +
+            '<div class="stats-more">' +
+                '<div class="stat-card"><div class="stat-label">Closed PnL</div><div class="stat-value" style="color:' + pnlColor + '">' + pnlSign + '$' + Math.abs(s.total_pnl).toFixed(2) + '</div></div>' +
+                '<div class="stat-card"><div class="stat-label">Unrealised</div><div class="stat-value" style="color:' + ((s.unrealised_pnl || 0) >= 0 ? 'var(--neon)' : 'var(--red)') + '">' + urSign + '$' + Math.abs(s.unrealised_pnl || 0).toFixed(2) + '</div></div>' +
+                '<div class="stat-card"><div class="stat-label">Predictions</div><div class="stat-value">' + (s.total_predictions || 0) + '</div></div>' +
+                '<div class="stat-card"><div class="stat-label">Accuracy</div><div class="stat-value" style="color:' + (accStr !== '\u2014' ? 'var(--neon)' : 'var(--text-ghost)') + '">' + accStr + '</div></div>' +
+            '</div>';
+    }
+    loadStats();
+    setInterval(loadStats, 10000);
+
     /* ── Visibility change: refresh when returning to tab ── */
     document.addEventListener('visibilitychange', function() {
         if (!document.hidden) {
             htmx.trigger(document.getElementById('activity-bar'), 'load');
-            htmx.trigger(document.getElementById('stats-grid'), 'load');
-            loadTrades(tradesPage);
+            loadStats();
+            loadTrades();
             loadMarkets(marketsPage);
             refreshChart();
         }
