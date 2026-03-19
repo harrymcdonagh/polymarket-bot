@@ -376,17 +376,19 @@ class Database:
             })
         return history
 
-    def get_recent_trades_with_names(self, limit: int = 20) -> list[dict]:
+    def get_recent_trades_with_names(self, limit: int = 20, since: str | None = None) -> list[dict]:
         """Get recent trades with market question resolved from snapshots."""
         conn = self._conn()
+        since_clause = f" AND t.executed_at > '{since}'" if since else ""
         rows = conn.execute(
-            """SELECT t.*, ms.question, ms.slug
+            f"""SELECT t.*, ms.question, ms.slug
                FROM trades t
                LEFT JOIN (
                    SELECT condition_id, question, slug,
                           ROW_NUMBER() OVER (PARTITION BY condition_id ORDER BY snapshot_at DESC) as rn
                    FROM market_snapshots
                ) ms ON t.market_id = ms.condition_id AND ms.rn = 1
+               WHERE 1=1{since_clause}
                ORDER BY t.executed_at DESC LIMIT ?""",
             (limit,),
         ).fetchall()
@@ -424,21 +426,22 @@ class Database:
         ).fetchone()
         return row["total"]
 
-    def get_trade_stats(self) -> dict:
+    def get_trade_stats(self, since: str | None = None) -> dict:
         conn = self._conn()
         closed_statuses = "('settled', 'dry_run_settled', 'exited', 'dry_run_exited')"
-        total = conn.execute("SELECT COUNT(*) as n FROM trades").fetchone()["n"]
+        since_clause = f" AND executed_at > '{since}'" if since else ""
+        total = conn.execute(f"SELECT COUNT(*) as n FROM trades WHERE 1=1{since_clause}").fetchone()["n"]
         settled = conn.execute(
-            f"SELECT COUNT(*) as n FROM trades WHERE status IN {closed_statuses}"
+            f"SELECT COUNT(*) as n FROM trades WHERE status IN {closed_statuses}{since_clause}"
         ).fetchone()["n"]
         wins = conn.execute(
-            f"SELECT COUNT(*) as n FROM trades WHERE status IN {closed_statuses} AND (pnl > 0 OR hypothetical_pnl > 0)"
+            f"SELECT COUNT(*) as n FROM trades WHERE status IN {closed_statuses} AND (pnl > 0 OR hypothetical_pnl > 0){since_clause}"
         ).fetchone()["n"]
         total_pnl = conn.execute(
-            f"SELECT COALESCE(SUM(COALESCE(pnl, hypothetical_pnl, 0)), 0) as s FROM trades WHERE status IN {closed_statuses}"
+            f"SELECT COALESCE(SUM(COALESCE(pnl, hypothetical_pnl, 0)), 0) as s FROM trades WHERE status IN {closed_statuses}{since_clause}"
         ).fetchone()["s"]
         dry_run_pending = conn.execute(
-            "SELECT COUNT(*) as n FROM trades WHERE status = 'dry_run'"
+            f"SELECT COUNT(*) as n FROM trades WHERE status = 'dry_run'{since_clause}"
         ).fetchone()["n"]
         win_rate = (wins / settled) if settled > 0 else 0.0
         return {
@@ -473,16 +476,18 @@ class Database:
         )
         conn.commit()
 
-    def get_prediction_stats(self) -> dict:
+    def get_prediction_stats(self, since: str | None = None) -> dict:
         conn = self._conn()
-        total = conn.execute("SELECT COUNT(*) as n FROM predictions").fetchone()["n"]
-        approved = conn.execute("SELECT COUNT(*) as n FROM predictions WHERE approved = 1").fetchone()["n"]
+        since_clause = f" AND predicted_at > '{since}'" if since else ""
+        where = f"WHERE 1=1{since_clause}"
+        total = conn.execute(f"SELECT COUNT(*) as n FROM predictions {where}").fetchone()["n"]
+        approved = conn.execute(f"SELECT COUNT(*) as n FROM predictions {where} AND approved = 1").fetchone()["n"]
         blocked = total - approved
         avg_confidence = conn.execute(
-            "SELECT COALESCE(AVG(confidence), 0) as v FROM predictions"
+            f"SELECT COALESCE(AVG(confidence), 0) as v FROM predictions {where}"
         ).fetchone()["v"]
         avg_edge = conn.execute(
-            "SELECT COALESCE(AVG(ABS(edge)), 0) as v FROM predictions"
+            f"SELECT COALESCE(AVG(ABS(edge)), 0) as v FROM predictions {where}"
         ).fetchone()["v"]
         return {
             "total_predictions": total,
@@ -492,15 +497,16 @@ class Database:
             "avg_edge": round(avg_edge, 4),
         }
 
-    def get_prediction_accuracy(self) -> dict:
+    def get_prediction_accuracy(self, since: str | None = None) -> dict:
         """Compare predictions against resolved outcomes."""
         conn = self._conn()
+        since_clause = f" AND t.executed_at > '{since}'" if since else ""
         rows = conn.execute(
-            """SELECT p.market_id, p.recommended_side, p.predicted_prob, p.edge,
+            f"""SELECT p.market_id, p.recommended_side, p.predicted_prob, p.edge,
                       t.resolved_outcome, t.hypothetical_pnl
                FROM predictions p
                JOIN trades t ON p.market_id = t.market_id
-               WHERE t.resolved_outcome IS NOT NULL AND p.approved = 1"""
+               WHERE t.resolved_outcome IS NOT NULL AND p.approved = 1{since_clause}"""
         ).fetchall()
         if not rows:
             return {"evaluated": 0, "correct": 0, "accuracy": 0}

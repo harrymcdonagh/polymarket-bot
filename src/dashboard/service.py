@@ -58,13 +58,16 @@ class DashboardService:
 
     # --- Read methods ---
 
-    def get_stats(self) -> dict:
-        trade_stats = self.db.get_trade_stats()
-        pred_stats = self.db.get_prediction_stats()
-        accuracy = self.db.get_prediction_accuracy()
+    def get_stats(self, since: str | None = None) -> dict:
+        trade_stats = self.db.get_trade_stats(since=since)
+        pred_stats = self.db.get_prediction_stats(since=since)
+        accuracy = self.db.get_prediction_accuracy(since=since)
         # Calculate total unrealised PnL from open positions
         from src.pnl import calc_unrealised_pnl
         open_pos = self.db.get_open_positions_with_prices()
+        # Filter open positions by since if provided
+        if since:
+            open_pos = [t for t in open_pos if (t.get("executed_at") or "") > since]
         unrealised = sum(
             calc_unrealised_pnl(
                 side=t["side"], amount=t["amount"],
@@ -82,9 +85,12 @@ class DashboardService:
             "unrealised_pnl": round(unrealised, 2),
         }
 
-    def get_recent_trades(self, limit: int = 20) -> list[dict]:
-        real_trades = self.db.get_recent_trades_with_names(limit)
-        combined = self._dry_run_trades + real_trades
+    def get_recent_trades(self, limit: int = 20, since: str | None = None) -> list[dict]:
+        real_trades = self.db.get_recent_trades_with_names(limit, since=since)
+        if since:
+            combined = [t for t in self._dry_run_trades if (t.get("executed_at") or "") > since] + real_trades
+        else:
+            combined = self._dry_run_trades + real_trades
         combined.sort(key=lambda t: t.get("executed_at", ""), reverse=True)
         return combined[:limit]
 
@@ -94,10 +100,12 @@ class DashboardService:
         # Fall back to recent flagged snapshots joined with prediction outcomes
         return self.db.get_flagged_markets_with_predictions(limit=30)
 
-    def get_pnl_history(self) -> list[dict]:
+    def get_pnl_history(self, since: str | None = None) -> list[dict]:
         snapshots = self.db.get_pnl_snapshots()
         if not snapshots:
             return []
+        if since:
+            snapshots = [s for s in snapshots if (s["snapshot_at"] or "") > since]
         return [
             {
                 "date": s["snapshot_at"][:16].replace("T", " "),

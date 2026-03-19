@@ -96,12 +96,12 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
         return HTMLResponse("<h1>Polymarket Bot Dashboard</h1><p>Templates not found.</p>")
 
     @app.get("/api/stats")
-    async def api_stats():
-        return await asyncio.to_thread(service.get_stats)
+    async def api_stats(since: str | None = None):
+        return await asyncio.to_thread(service.get_stats, since)
 
     @app.get("/api/trades")
-    async def api_trades(page: int = 1, per_page: int = 10):
-        all_trades = await asyncio.to_thread(service.get_recent_trades, 200)
+    async def api_trades(page: int = 1, per_page: int = 10, since: str | None = None):
+        all_trades = await asyncio.to_thread(service.get_recent_trades, 200, since)
         total = len(all_trades)
         start = (page - 1) * per_page
         return {"items": all_trades[start:start + per_page], "total": total, "page": page, "per_page": per_page}
@@ -117,8 +117,8 @@ def create_app(settings=None, db_path: str | None = None) -> FastAPI:
         return {"items": all_items[start:start + per_page], "total": total, "page": page, "per_page": per_page}
 
     @app.get("/api/pnl-history")
-    async def api_pnl_history():
-        return await asyncio.to_thread(service.get_pnl_history)
+    async def api_pnl_history(since: str | None = None):
+        return await asyncio.to_thread(service.get_pnl_history, since)
 
     @app.get("/api/positions")
     async def api_positions():
