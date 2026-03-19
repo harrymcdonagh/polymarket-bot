@@ -263,7 +263,7 @@
     }
 
     /* ── Sortable trades ── */
-    const isSettled = s => s === 'dry_run_settled' || s === 'settled';
+    const isSettled = s => ['dry_run_settled', 'settled', 'dry_run_exited', 'exited'].includes(s);
     let _tradesData = [];
     let _tradeSort = { col: null, asc: true };
 
