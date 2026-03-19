@@ -105,7 +105,10 @@ class DashboardService:
         if not snapshots:
             return []
         if since:
-            snapshots = [s for s in snapshots if (s["snapshot_at"] or "") > since]
+            # Normalize format: both "2026-03-19 15:29" and "2026-03-19T15:29" should match
+            since_normalized = since.replace("T", " ").replace("+00:00", "")
+            snapshots = [s for s in snapshots
+                         if (s["snapshot_at"] or "").replace("T", " ").replace("+00:00", "") > since_normalized]
         return [
             {
                 "date": s["snapshot_at"][:16].replace("T", " "),
